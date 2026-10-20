@@ -1,6 +1,7 @@
 """Reading the machine and acting on processes, on macOS, Linux and Windows.
 
-  macOS / Linux   lsof (listening and established sockets, working folders), ps (process table), signals
+  macOS           lsof (listening and established sockets, working folders), ps (process table), signals
+  Linux           /proc/net/tcp{,6} and /proc/<pid> (sockets, owners, working folders), ps, signals
   Windows         netstat -ano (sockets), PowerShell Get-CimInstance Win32_Process (process table), taskkill
 
 Every parser is a pure function over command output, so it can be tested on any machine.
@@ -16,6 +17,7 @@ import subprocess
 import time
 
 IS_WINDOWS = os.name == "nt"
+IS_LINUX = os.path.isdir("/proc/net") and not IS_WINDOWS
 LSOF = shutil.which("lsof") or "/usr/sbin/lsof"
 PS = shutil.which("ps") or "/bin/ps"
 NO_WINDOW = 0x08000000 if IS_WINDOWS else 0          # CREATE_NO_WINDOW: no console flashes for helper commands
@@ -102,6 +104,8 @@ def parse_listeners(text):
 def listeners():
     if IS_WINDOWS:
         return parse_netstat(_netstat())["listen"]
+    if IS_LINUX:
+        return linux_listeners()
     return parse_listeners(run([LSOF, "-nP", "-iTCP", "-sTCP:LISTEN", "-FpcuLn"]))
 
 
@@ -123,6 +127,13 @@ def established(listening_ports):
     if IS_WINDOWS:
         counts = parse_netstat(_netstat())["established"]
         return {p: n for p, n in counts.items() if p in set(listening_ports)}
+    if IS_LINUX:
+        wanted = set(listening_ports)
+        counts = {}
+        for row in _proc_net():
+            if row["state"] == "01" and row["port"] in wanted:
+                counts[row["port"]] = counts.get(row["port"], 0) + 1
+        return counts
     return parse_established(run([LSOF, "-nP", "-iTCP", "-sTCP:ESTABLISHED", "-Fpn"]), set(listening_ports))
 
 
@@ -181,6 +192,14 @@ def cwds(pids):
     pids = sorted(set(pids))
     if not pids or IS_WINDOWS:   # Windows does not expose another process's working folder without native code
         return {}
+    if IS_LINUX:
+        out = {}
+        for pid in pids:
+            try:
+                out[pid] = os.readlink(f"/proc/{pid}/cwd")
+            except OSError:
+                pass
+        return out
     out = {}
     for i in range(0, len(pids), 200):
         chunk = ",".join(str(p) for p in pids[i:i + 200])
@@ -198,6 +217,84 @@ def is_alive(pid):
     except PermissionError:
         return True
     return True
+
+
+# ---------------------------------------------------------------- Linux: sockets straight from /proc
+
+def proc_address(hexaddr):
+    """'0100007F:1F90' -> ('127.0.0.1', 8080); IPv6 addresses are four little-endian 32-bit words."""
+    host, port = hexaddr.split(":")
+    raw = bytes.fromhex(host)
+    if len(raw) == 4:
+        ip = ".".join(str(b) for b in raw[::-1])
+    else:
+        import ipaddress
+        words = b"".join(raw[i:i + 4][::-1] for i in range(0, 16, 4))
+        ip = str(ipaddress.IPv6Address(words))
+        if ip.startswith("::ffff:") and "." in ip:
+            ip = ip[7:]
+    return ip, int(port, 16)
+
+
+def parse_proc_net(text):
+    """/proc/net/tcp or tcp6 -> [{host, port, state, uid, inode}]. State 0A is LISTEN, 01 ESTABLISHED."""
+    rows = []
+    for line in text.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 10:
+            continue
+        try:
+            host, port = proc_address(parts[1])
+        except ValueError:
+            continue
+        rows.append({"host": host, "port": port, "state": parts[3], "uid": int(parts[7]), "inode": int(parts[9])})
+    return rows
+
+
+def _proc_net():
+    rows = []
+    for name in ("tcp", "tcp6"):
+        try:
+            with open(f"/proc/net/{name}") as f:
+                rows += parse_proc_net(f.read())
+        except OSError:
+            pass
+    return rows
+
+
+def socket_owners(inodes):
+    """socket inode -> pid, by reading /proc/<pid>/fd links (only processes we may look at)."""
+    want, owners = {f"socket:[{i}]" for i in inodes}, {}
+    for entry in os.scandir("/proc"):
+        if not entry.name.isdigit():
+            continue
+        try:
+            for fd in os.scandir(f"/proc/{entry.name}/fd"):
+                try:
+                    link = os.readlink(fd.path)
+                except OSError:
+                    continue
+                if link in want:
+                    owners[int(link[8:-1])] = int(entry.name)
+        except OSError:
+            continue
+    return owners
+
+
+def linux_listeners():
+    rows = [r for r in _proc_net() if r["state"] == "0A"]
+    owners = socket_owners({r["inode"] for r in rows})
+    out = {}
+    for r in rows:
+        pid = owners.get(r["inode"])
+        if pid is None:   # another user's socket (e.g. root's sshd): like lsof without sudo, Harbor can't see it
+            continue
+        row = out.setdefault((pid, r["port"]), {"pid": pid, "port": r["port"], "command": "", "uid": r["uid"],
+                                               "user": "", "addresses": []})
+        shown = "*" if r["host"] in ("0.0.0.0", "::") else r["host"]
+        if shown not in row["addresses"]:
+            row["addresses"].append(shown)
+    return out
 
 
 # ---------------------------------------------------------------- Windows: sockets and processes

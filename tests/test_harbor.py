@@ -91,6 +91,24 @@ CIM = json.dumps([
 ])
 
 
+PROC_TCP = """  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 41234 1 0000000000000000 100 0 0 10 0
+   1: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1111 1 0000000000000000 100 0 0 10 0
+   2: 0100007F:1F90 0100007F:C350 01 00000000:00000000 00:00000000 00000000  1001        0 41299 1 0000000000000000 20 4 30 10 -1
+"""
+PROC_TCP6 = """  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000001000000:1F90 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 41235 1 0000000000000000 100 0 0 10 0
+"""
+
+
+class Linux(unittest.TestCase):
+    def test_proc_net_tcp(self):
+        rows = system.parse_proc_net(PROC_TCP) + system.parse_proc_net(PROC_TCP6)
+        listen = [(r["host"], r["port"], r["uid"]) for r in rows if r["state"] == "0A"]
+        self.assertEqual(listen, [("127.0.0.1", 8080, 1001), ("0.0.0.0", 22, 0), ("::1", 8080, 1001)])
+        self.assertEqual([(r["port"], r["inode"]) for r in rows if r["state"] == "01"], [(8080, 41299)])
+
+
 class Windows(unittest.TestCase):
     """The Windows backend's parsers, on sample output, so they are tested on every OS."""
 
@@ -244,6 +262,10 @@ class Ports(unittest.TestCase):
             s.close()
 
 
+# Talk to the test server directly: urllib otherwise applies the OS proxy settings, even to 127.0.0.1 on macOS.
+NO_PROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def free_port():
     return probe.free_ports(47000, 1)[0]
 
@@ -284,7 +306,7 @@ class LiveServer(unittest.TestCase):
         if token and method != "GET":
             req.add_header("X-Harbor-Token", cls.token)
         try:
-            with urllib.request.urlopen(req, timeout=15) as r:
+            with NO_PROXY.open(req, timeout=15) as r:
                 return r.status, json.loads(r.read())
         except urllib.error.HTTPError as err:
             with err:
@@ -351,7 +373,7 @@ class LiveServer(unittest.TestCase):
             # the stable name reaches the app on whichever port it is on
             req = urllib.request.Request(f"http://127.0.0.1:{self.port}/")
             req.add_header("Host", f"demo.localhost:{self.port}")
-            with urllib.request.urlopen(req, timeout=10) as r:
+            with NO_PROXY.open(req, timeout=10) as r:
                 self.assertIn(b"Directory listing", r.read(), "demo.localhost did not reach the app")
             logs = self.get(f"/api/apps/{app['id']}/logs")
             self.assertTrue(any("Serving HTTP" in ln["text"] for ln in logs["lines"]), logs)

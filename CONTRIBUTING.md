@@ -30,7 +30,7 @@ On Windows, use `bin\harbor.cmd` and run `npm install && npm run build` inside `
 
 | Path | What it is |
 |---|---|
-| `harbor/system.py` | Reads ports and processes and stops them: lsof/ps on macOS and Linux, netstat/PowerShell/taskkill on Windows |
+| `harbor/system.py` | Reads ports and processes and stops them: lsof/ps on macOS, /proc/ps on Linux, netstat/PowerShell/taskkill on Windows |
 | `harbor/classify.py` | Works out each port's framework, project, kind, and the app that launched it |
 | `harbor/core.py` | Scan loop, live snapshot, actions and guard rails |
 | `harbor/control.py` | Stopping processes; running saved apps that outlive Harbor |

@@ -151,7 +151,7 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 
 | | macOS | Linux | Windows |
 |---|---|---|---|
-| Reads ports and processes with | `lsof`, `ps` | `lsof`, `ps` | `netstat`, PowerShell |
+| Reads ports and processes with | `lsof`, `ps` | `/proc`, `ps` | `netstat`, PowerShell |
 | Stops processes with | signals | signals | `taskkill` |
 | Knows each process's folder | ✓ | ✓ | from its command line |
 | Start at login | launchd | systemd user service | Task Scheduler |

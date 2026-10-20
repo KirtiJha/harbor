@@ -37,7 +37,11 @@ jobs:
         if: always()
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then netstat -ano | head -20; else lsof -nP -iTCP -sTCP:LISTEN -FpcuLn | head -30; fi
+          case "$RUNNER_OS" in
+            Windows) netstat -ano | head -20 ;;
+            Linux) head -20 /proc/net/tcp ;;
+            *) lsof -nP -iTCP -sTCP:LISTEN | head -20 || true ;;
+          esac
       - name: CLI smoke test
         if: always()
         env:

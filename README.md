@@ -1,131 +1,167 @@
+<div align="center">
+
+<img src="web/public/harbor.svg" width="72" alt="Harbor logo" />
+
 # Harbor
 
-Every app listening on a port on your Mac, in one live dashboard: what it is, which project it belongs
-to, whether it answers, and one click to open, stop, restart or start it.
+**Every port on your machine, in one harbor.**
+
+See every app listening on a port: what it is, which project it belongs to, whether it answers.
+Open it, stop it, restart it or start it again in one click.
+
+[![CI](https://github.com/KirtiJha/harbor/actions/workflows/ci.yml/badge.svg)](https://github.com/KirtiJha/harbor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2dd4bf.svg)](LICENSE)
+![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-60a5fa.svg)
+![macOS · Linux · Windows](https://img.shields.io/badge/runs%20on-macOS%20·%20Linux%20·%20Windows-a78bfa.svg)
+![Zero dependencies](https://img.shields.io/badge/backend%20dependencies-0-34d399.svg)
+
+<img src="docs/images/hero.jpg" alt="Harbor landing page with a live preview of the dashboard" width="900" />
+
+</div>
+
+## Why
+
+Every project brings a dev server, an API, a database and a watcher. They pile up on ports you never chose:
+
+- `EADDRINUSE` on :5173, and then `lsof`, a pid and `ps` just to find out what holds it.
+- Vite and Next quietly move to the next free port, so your bookmark now opens a different project.
+- `kill <pid>` hits a child process, and `make dev` starts it again.
+- A server bound to `0.0.0.0` is reachable from the café Wi-Fi. Last week's prototype is still holding 400 MB.
+
+Harbor turns that into one live, searchable dashboard, with a command line for when you are already in a terminal.
+
+## Quick start
+
+You need Python 3.9 or newer. Node 20+ is needed only once, to build the UI.
+
+**macOS / Linux**
 
 ```bash
-cd harbor
-make run            # builds the UI the first time, starts Harbor, opens http://localhost:7475
-make install        # optional: a `harbor` command on your PATH (~/.local/bin)
+git clone https://github.com/KirtiJha/harbor.git && cd harbor
+make run          # builds the UI the first time, starts Harbor, opens http://localhost:7475
+make install      # optional: a `harbor` command on your PATH (~/.local/bin)
 ```
 
-It needs only `python3` (3.9+, standard library only) plus `lsof` and `ps`, which macOS has. Node is used only to
-build the UI once. The overview page is at http://localhost:7475/welcome.
+**Windows (PowerShell)**
 
-## What it does
+```powershell
+git clone https://github.com/KirtiJha/harbor.git; cd harbor
+cd web; npm install; npm run build; cd ..
+bin\harbor.cmd    # starts Harbor and opens http://localhost:7475
+```
 
-**Ports**
-- Live list of every listening TCP port, refreshed every 2 s while the page is open.
-- Each row shows the project (from `package.json`, `pyproject.toml` or git), the framework (Vite, Next, Uvicorn,
-  Django, Postgres…), the page title, HTTP status and response time, uptime, CPU and memory sparklines,
-  and open connections.
-- Grouped by project or by type, with filters: Mine, Web, Dev servers, Databases, On network, Pinned,
-  System & apps.
-- Search works on port, title, project, folder, command and your notes; `:51` finds ports starting with 51.
-- **Network warning** on anything bound to all interfaces, so you can see it is reachable from your network.
-- Workers sharing a socket (uvicorn `--reload`, gunicorn) collapse into one row.
-- Docker containers are named on the ports they publish.
-- **Forgotten servers**: dev servers with no connections and no CPU for 4 h (you can change this) are marked
-  idle, listed with the memory they hold, and stopped in one click.
-- **Multi-select** (space or the row checkbox) to stop several ports or apps at once.
-- **Response-time history** and an "ok" count per port, plus each port's own history in the detail panel.
-- **Phone testing**: network-exposed servers show their Wi-Fi URL.
+The tour of every feature is at http://localhost:7475/welcome.
 
-**Stopping and restarting**
-- **Stop process** stops just that pid.
-- **Stop whole app** finds what launched the server (`make dev`, `npm run dev`, a reloader) and stops it and
-  every child, so nothing respawns it. It never climbs into your terminal, editor or agent shell.
-- Stopping is polite: SIGTERM first, then SIGKILL only after a grace period, which you can set.
-- **Restart** re-runs the app's own command in its folder under Harbor, so you then get its logs.
-- **Guard rails:**
-  - Harbor itself and other users' processes can't be stopped.
-  - Desktop apps and macOS services need you to type the port number to confirm.
-  - Harbor never uses sudo.
+## Features
 
-**Apps (saved launchers)**
-- Save a command, folder and port once, then start or stop it with one click.
-  - Use **Save as app** on any running row.
-  - Use **Find projects** to scan a folder for npm/pnpm/yarn scripts, Makefile targets, Django, FastAPI,
-    Flask and Streamlit apps, and Compose files.
-- Live output with colours, clickable URLs, filtering, and a jump to error lines. Output is also kept in
-  `~/.harbor/logs/`.
-- **Port conflicts are handled before starting:**
-  - Harbor shows who holds the port.
-  - It offers the next free port: it sets `PORT` and fills `{port}` in the command.
-  - Or it can stop the holder and take the port.
-- Flags an app that is running off its saved port, and one already running outside Harbor (Harbor can
-  restart it under Harbor to capture logs).
-- Optional auto-restart on crash, up to 3 times in 2 minutes.
-- **Groups**: put backend and frontend in a group and start or stop them together.
-- **Stable names**: `http://<short-name>.localhost:7475` always reaches the app, whatever port it is on today.
-  - Websockets and hot reload work through it.
-  - Every saved app gets one. A project with a single web port is reachable by its project name too
-    (e.g. `docs-web.localhost:7475`).
-- **Export and import** apps as JSON to share a setup.
+<img src="docs/images/features.jpg" alt="Harbor features" width="900" />
 
-**Everything else**
-- **Pin and watch:**
-  - Pinned ports stay on top.
-  - A watched port that goes down raises a banner, a toast and, when the tab is hidden, a desktop
-    notification.
-- **Notes and names per port.** These survive restarts.
-- **Activity timeline** of ports opening and closing, and apps starting, stopping and crashing.
-- **Port tools:** "is this port free?" (who holds it, and free ports nearby) and "find free ports from 3000/5173/8000…".
-- **Folders:** open a project's folder in Finder, your editor (`code`/`cursor`) or Terminal.
-- **Keyboard:**
+### See
+- **Live port map.** Every listening TCP port, refreshed every two seconds and grouped by project. Each row shows:
+  - the framework (Vite, Next, Uvicorn, Django, Postgres…) and the page title;
+  - HTTP status and response time, uptime, connections, and CPU and memory sparklines.
+- **Network warnings** for anything reachable from other devices, with the Wi-Fi URL for phone testing.
+- **Forgotten servers.** Dev servers with no connections and no CPU for hours are flagged, with the memory
+  they hold.
+- **Search, filters and pins.** Search on port, project, command and notes; `:51` finds ports starting with 51.
+- **Docker-aware.** Published container ports show the container and image.
 
-  | Keys | Action |
-  |---|---|
-  | `⌘K` | Command palette (type a port number to jump to it) |
-  | `/` | Search |
-  | `1` `2` `3` | Ports, Apps, Activity tabs |
-  | `j` `k` | Move between rows |
-  | `o` | Open |
-  | `c` | Copy URL |
-  | `p` | Pin |
-  | `w` | Watch |
-  | `x` / `⇧X` | Stop the process / the whole app |
-  | `n` | New app |
-  | `t` | Theme |
-  | `?` | Help |
+### Act
+- **Stop the whole app, not just the pid.** Harbor walks up from the port's process through launchers
+  (`make`, `npm`, shells, reloaders) and stops the whole tree. It stops at your terminal, editor or agent.
+- **Graceful first.** SIGTERM (or `taskkill`) first; force only after a grace period you choose.
+- **Bulk stop** of several ports or apps, and a one-click clean-up of idle servers.
+- **Guard rails.** No sudo, ever. Harbor won't stop itself, other users' processes, or anything it doesn't show.
+  System services and desktop apps need you to type the port number to confirm.
 
-- Light and dark themes.
+### Run
+- **Saved apps.** Save a command, folder and port once, then start, stop and restart with one click.
+  - Output is live and coloured, with clickable URLs and a jump to error lines.
+  - Groups start and stop together, and crashed apps can restart automatically.
+- **Port conflicts handled before they happen.** See who holds the port, then take the next free one
+  (Harbor sets `PORT` and fills `{port}` in the command) or take the port over.
+- **Stable names.** `http://shop.localhost:7475` reaches the app on whatever port it is on today, websockets and
+  hot reload included.
+- **Outlives restarts.** Apps keep running when Harbor stops or restarts, and Harbor picks them up again.
+- **Find projects.** Harbor scans a folder for npm, pnpm and yarn scripts, Makefile targets, Django, FastAPI,
+  Flask and Streamlit apps, and Compose files.
+
+### Understand
+- **Activity timeline.** One lane per port, with markers for launches, crashes and conflicts, plus a
+  weekday-by-hour heatmap and an event log.
+- **Insights.** A week of history:
+  - memory by project, and ports over time;
+  - health (checks OK, average and p95 response time);
+  - top-five lists, and suggestions with one-click fixes.
+- **Watch and notify.** A banner, a toast and a desktop notification when a watched port goes down.
+
+### Keyboard
+
+| Keys | Action | Keys | Action |
+|---|---|---|---|
+| `⌘K` / `Ctrl K` | Command palette (type a port number) | `o` | Open in browser |
+| `/` | Search | `c` | Copy URL |
+| `1`–`4` | Ports · Apps · Activity · Insights | `p` / `w` | Pin / watch |
+| `j` `k` | Move between rows | `x` / `⇧X` | Stop process / whole app |
+| `Space` | Select for bulk stop | `?` | All shortcuts |
 
 ## Command line
 
 ```bash
-harbor                 # dashboard (same as `harbor serve`)
-harbor ls [--all]      # listening ports; --json for scripts
-harbor who 5173        # what is on a port: command, folder, app, HTTP answer
-harbor kill 5173 --app # stop the whole app on a port (asks first; -y to skip)
-harbor free 3000 -n 5  # next free ports
-harbor open 5173
-harbor service install # start Harbor at login (launchd); uninstall / status
+harbor                  # the dashboard (same as `harbor serve`)
+harbor ls [--all]       # listening ports; --json for scripts
+harbor who 5173         # what is on a port: command, folder, app, HTTP answer
+harbor kill 5173 --app  # stop the whole app on a port (asks first; -y to skip)
+harbor free 3000 -n 5   # the next free ports
+harbor open 5173        # open in the browser
+harbor service install  # start at login (launchd, systemd or Task Scheduler); uninstall / status
 ```
 
-## Safety
+## How it works
 
-- Harbor listens on 127.0.0.1 only.
-- It answers only requests addressed to `localhost`/`127.0.0.1` on its own port, which blocks DNS
-  rebinding from web pages.
-- Every change needs a per-session token that only Harbor's own page can read.
-- It opens folders only for apps it is showing.
-- It stores apps, notes and settings in `~/.harbor/state.json` (move it with `HARBOR_HOME`). Don't put
-  secrets in an app's environment there; let the app read its own `.env`.
+<img src="docs/images/architecture.jpg" alt="Harbor architecture" width="900" />
 
-Apps that Harbor started stop when Harbor stops (Ctrl-C), because Harbor owns their output.
-
-## Development
-
-```bash
-make test             # backend tests (unittest, includes a real server and a real app run) + UI type check
-bin/harbor --no-open  # backend on :7475
-make dev              # UI with hot reload on :7476, proxying /api to :7475
+```mermaid
+flowchart LR
+  OS["Sockets and processes<br/>lsof · ps (macOS, Linux)<br/>netstat · PowerShell (Windows)"] --> Scanner
+  Scanner --> Classifier["Classifier<br/>project · framework · launcher"]
+  Servers["Your servers"] -->|HTTP checks| Prober
+  Classifier --> Engine
+  Prober --> Engine["Engine<br/>events · idle · conflicts · guard rails"]
+  Engine --> API["Local server<br/>JSON API · live stream"] --> UI["Dashboard & CLI"]
+  Engine --> Proxy["Stable names<br/>app.localhost → port"]
+  Engine <--> Supervisor["Supervisor<br/>saved apps · logs"]
+  Engine <--> Store[("~/.harbor<br/>apps · notes · history")]
 ```
 
-- **`harbor/`**: the Python backend.
-  - `system.py` reads lsof and ps.
-  - `classify.py` decides framework, kind, project and the owning app.
-  - `core.py` runs the scan loop and the actions.
-  - `server.py` serves the API, the event stream and the UI.
-- **`web/`**: the React + Tailwind UI.
+A small local server reads the machine every two seconds (about 0.2 s of work on macOS). It works out what each
+listening process is and which app launched it, asks each web server for its status and title, and streams the
+picture to your browser. Everything is the Python standard library, plus the tools your OS already has.
+
+## Security
+
+- **Loopback only.** Harbor listens on `127.0.0.1` and `::1`, never on your network.
+- **DNS rebinding blocked.** It answers only requests addressed to its own `localhost` port.
+- **Session token.** Every change needs a per-session token that only Harbor's own page can read.
+- **No sudo, no telemetry.** State lives in `~/.harbor` (move it with `HARBOR_HOME`).
+
+See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
+
+## Platform notes
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Reads ports and processes with | `lsof`, `ps` | `lsof`, `ps` | `netstat`, PowerShell |
+| Stops processes with | signals | signals | `taskkill` |
+| Knows each process's folder | ✓ | ✓ | from its command line |
+| Start at login | launchd | systemd user service | Task Scheduler |
+
+## Contributing
+
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, tests and the project layout.
+`make test` runs the backend tests (a real server and a real app included) and the UI type check. CI runs them on
+macOS, Linux and Windows.
+
+## License
+
+[MIT](LICENSE) © Kirti Nath Jha

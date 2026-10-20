@@ -1,5 +1,6 @@
 """Porthaven tests: parsers and rules on recorded command output, plus the real server and a real app run
 on this machine (a throwaway `python3 -m http.server` on a free port)."""
+import faulthandler
 import json
 import os
 import socket
@@ -591,6 +592,13 @@ http.server.ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
 
 class StackLive(_Live):
     """Stacks, the request inspector, sleep and wake, porthaven.toml and workspaces on a real server."""
+
+    def setUp(self):
+        # A hang here should print every thread's stack and end the run, not stall CI for hours.
+        faulthandler.dump_traceback_later(240, exit=True)
+
+    def tearDown(self):
+        faulthandler.cancel_dump_traceback_later()
 
     def _wait(self, cond, seconds=20):
         for _ in range(int(seconds * 10)):

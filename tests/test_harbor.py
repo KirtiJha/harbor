@@ -279,11 +279,24 @@ class LiveServer(unittest.TestCase):
         cls.home = tempfile.TemporaryDirectory()
         cls.port = free_port()
         cls.h = Harbor(Store(cls.home.name), cls.port)
-        threading.Thread(target=serve, args=(cls.h, cls.port), daemon=True).start()
+        cls.crash = []
+
+        def run():
+            try:
+                serve(cls.h, cls.port)
+            except Exception as err:   # surface a server that died, instead of a client timeout
+                cls.crash.append(repr(err))
+        threading.Thread(target=run, daemon=True).start()
         for _ in range(50):
             if not probe.port_free(cls.port):
                 break
             time.sleep(0.1)
+        probe_sock = socket.socket()
+        probe_sock.settimeout(3)
+        reach = probe_sock.connect_ex(("127.0.0.1", cls.port))
+        probe_sock.close()
+        if reach != 0:
+            raise AssertionError(f"test server on 127.0.0.1:{cls.port} unreachable (connect_ex={reach}); server error: {cls.crash}")
         cls.token = cls.get("/api/session")["token"]
         for _ in range(100):   # the first scan runs in the background
             if cls.h.snapshot:
@@ -375,7 +388,11 @@ class LiveServer(unittest.TestCase):
             req.add_header("Host", f"demo.localhost:{self.port}")
             with NO_PROXY.open(req, timeout=10) as r:
                 self.assertIn(b"Directory listing", r.read(), "demo.localhost did not reach the app")
-            logs = self.get(f"/api/apps/{app['id']}/logs")
+            for _ in range(30):   # Harbor follows the log file a few times a second
+                logs = self.get(f"/api/apps/{app['id']}/logs")
+                if any("Serving HTTP" in ln["text"] for ln in logs["lines"]):
+                    break
+                time.sleep(0.2)
             self.assertTrue(any("Serving HTTP" in ln["text"] for ln in logs["lines"]), logs)
             status, _ = self.call("POST", f"/api/apps/{app['id']}/stop", {})
             self.assertEqual(status, 200)

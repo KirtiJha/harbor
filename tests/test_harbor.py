@@ -263,6 +263,10 @@ class LiveServer(unittest.TestCase):
                 break
             time.sleep(0.1)
         cls.token = cls.get("/api/session")["token"]
+        for _ in range(100):   # the first scan runs in the background
+            if cls.h.snapshot:
+                break
+            time.sleep(0.1)
 
     @classmethod
     def tearDownClass(cls):
@@ -292,8 +296,11 @@ class LiveServer(unittest.TestCase):
 
     def test_sees_itself_and_will_not_stop_itself(self):
         snap = self.get("/api/state")
+        self.h.refresh()
+        snap = self.get("/api/state")
         me = [r for r in snap["listeners"] if r["port"] == self.port]
-        self.assertTrue(me, "Harbor's own port is missing from the list")
+        self.assertTrue(me, f"Harbor's own port {self.port} is missing. Scan error: {snap['error']}; "
+                            f"ports seen: {sorted({r['port'] for r in snap['listeners']})}")
         self.assertEqual(me[0]["risk"], "self")
         status, body = self.call("POST", "/api/kill", {"pid": os.getpid(), "mode": "process"})
         self.assertEqual(status, 403, body)
@@ -338,7 +345,7 @@ class LiveServer(unittest.TestCase):
                 if st["state"] == "running":
                     break
                 time.sleep(0.2)
-            self.assertEqual(st["state"], "running", st)
+            self.assertEqual(st["state"], "running", f"{st}; scan error: {self.h.error}; ports seen: {sorted(p for (_, p) in self.h.listeners)}")
             self.assertEqual(st["ports"], [alt])
             self.assertTrue(st["drift"], "running off its saved port should be flagged")
             # the stable name reaches the app on whichever port it is on

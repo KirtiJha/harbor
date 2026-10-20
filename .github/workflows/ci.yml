@@ -33,7 +33,13 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -v
+      - name: What the OS reports (diagnostics)
+        if: always()
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then netstat -ano | head -20; else lsof -nP -iTCP -sTCP:LISTEN -FpcuLn | head -30; fi
       - name: CLI smoke test
+        if: always()
         env:
           PYTHONPATH: .
         run: |

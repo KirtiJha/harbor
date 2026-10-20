@@ -30,7 +30,7 @@ class Api:
         self.token = token
         self.routes = []
         r = self.route
-        r("GET", r"/api/state", lambda q, b: self.h.snapshot)
+        r("GET", r"/api/state", lambda q, b: self.h.snapshot or self.h.build())
         r("GET", r"/api/session", lambda q, b: {"token": self.token})
         r("POST", r"/api/refresh", self.refresh)
         r("POST", r"/api/kill", lambda q, b: self.h.kill(int(b["pid"]), b.get("mode", "process"), bool(b.get("force", True)),
@@ -443,7 +443,8 @@ def serve(harbor, port, host="127.0.0.1", ready=None):
         except OSError:
             httpd6 = None
     harbor.port = port
-    harbor.start()
+    # Answer straight away; the first scan of the machine can take a few seconds on a busy or slow machine.
+    threading.Thread(target=harbor.start, daemon=True, name="harbor-first-scan").start()
     if ready:
         threading.Timer(0.3, ready).start()
     try:

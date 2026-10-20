@@ -185,7 +185,8 @@ class Managed:
                     buf += chunk
                     *lines, buf = buf.split(b"\n")
                     for raw in lines:
-                        text = ANSI_OSC.sub("", raw.decode("utf-8", "replace")).split("\r")[-1]
+                        # Windows ends lines with \r\n; a bare \r inside a line is a progress redraw: keep the last one.
+                        text = ANSI_OSC.sub("", raw.decode("utf-8", "replace")).rstrip("\r").split("\r")[-1]
                         self._add(text)
                     continue
                 if not self.alive:

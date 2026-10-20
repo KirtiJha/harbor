@@ -26,7 +26,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
             <p className="break-all rounded-lg bg-panel-2 px-3 py-2 font-mono text-xs text-ink-2">{what}</p>
             {whole && <p className="text-xs text-muted">Stops the launcher (pid {l.root!.pid}) and every process under it, so nothing restarts the server.</p>}
             {sys && <p className="text-xs text-warn">This is {l.risk === "system" ? "a system service" : `part of ${l.appBundle || "a desktop app"}`}. Stopping it may break that app until it restarts.</p>}
-            <p className="text-xs text-muted">Harbor asks politely first (SIGTERM) and forces it (SIGKILL) only if it is still running after a few seconds.</p>
+            <p className="text-xs text-muted">Porthaven asks politely first (SIGTERM) and forces it (SIGKILL) only if it is still running after a few seconds.</p>
           </div>
         ),
       });
@@ -48,13 +48,13 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
       try {
         const r = await api.restart(l.pid).catch(async (e) => {
           if (e instanceof ApiError && e.status === 404) {
-            // already stopped: run it again from the saved app Harbor made
+            // already stopped: run it again from the saved app Porthaven made
             const app = await api.appFromProcess(l.pid).catch(() => null);
             if (app) { await api.startApp(app.id, { force: true }); return { app }; }
           }
           throw e;
         });
-        toast(<>Restarting <b>{r.app.name}</b>. Harbor now runs it and keeps its logs.</>, "ok");
+        toast(<>Restarting <b>{r.app.name}</b>. Porthaven now runs it and keeps its logs.</>, "ok");
       } catch (e) {
         fail(e);
       }
@@ -64,7 +64,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
       const ok = await confirm({
         title: `Restart ${l.title}?`, confirm: "Restart",
         body: <div className="space-y-2">
-          <p>Harbor stops <span className="font-mono text-xs">{(l.root || l).display}</span> and runs it again in <span className="font-mono text-xs">{l.root?.cwd || l.cwd}</span>.</p>
+          <p>Porthaven stops <span className="font-mono text-xs">{(l.root || l).display}</span> and runs it again in <span className="font-mono text-xs">{l.root?.cwd || l.cwd}</span>.</p>
           <p className="text-xs text-muted">It is saved under Apps, so you can see its output and start it with one click next time.</p>
         </div>,
       });
@@ -136,7 +136,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
             confirm: c.suggest ? `Use :${c.suggest} instead` : "OK",
             body: <div className="space-y-2">
               <p>{c.holder ? <><b>{c.holder.title}</b> (pid {c.holder.pid})</> : "Another process"} is listening on :{c.port}.</p>
-              {c.suggest && <p className="text-xs text-muted">Harbor sets <span className="font-mono">PORT={c.suggest}</span> and fills <span className="font-mono">{"{port}"}</span> in the command. Apps that ignore both will still try :{c.port}.</p>}
+              {c.suggest && <p className="text-xs text-muted">Porthaven sets <span className="font-mono">PORT={c.suggest}</span> and fills <span className="font-mono">{"{port}"}</span> in the command. Apps that ignore both will still try :{c.port}.</p>}
               {c.holder && <p className="text-xs"><button className="font-semibold text-bad hover:underline" onClick={(ev) => { ev.preventDefault(); void startApp(a, { takeOver: true, force: true }); document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); }}>Stop {c.holder.title} and take :{c.port}</button></p>}
             </div>,
           });
@@ -144,8 +144,8 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
           return;
         }
         if (e instanceof ApiError && e.status === 409 && e.data.external) {
-          const ok = await confirm({ title: `${a.name} is already running`, confirm: "Restart under Harbor",
-            body: <p>It was started outside Harbor (pid {(e.data.external as number[]).join(", ")}). Restart it under Harbor to capture its logs?</p> });
+          const ok = await confirm({ title: `${a.name} is already running`, confirm: "Restart under Porthaven",
+            body: <p>It was started outside Porthaven (pid {(e.data.external as number[]).join(", ")}). Restart it under Porthaven to capture its logs?</p> });
           if (ok) { await api.restartApp(a.id).catch(fail); toast(`Restarting ${a.name}…`, "ok"); }
           return;
         }
@@ -173,7 +173,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
 
     async function deleteApp(a: App) {
       const ok = await confirm({ title: `Remove ${a.name} from Apps?`, danger: true, confirm: "Remove",
-        body: <p>Only Harbor's saved entry is removed. Your project and its files are untouched.</p> });
+        body: <p>Only Porthaven's saved entry is removed. Your project and its files are untouched.</p> });
       if (!ok) return;
       try {
         await api.deleteApp(a.id);
@@ -233,7 +233,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `harbor-apps-${new Date().toISOString().slice(0, 10)}.json`;
+        a.download = `porthaven-apps-${new Date().toISOString().slice(0, 10)}.json`;
         a.click();
         URL.revokeObjectURL(a.href);
         toast(`Exported ${data.apps.length} app${data.apps.length === 1 ? "" : "s"}.`, "ok");
@@ -248,7 +248,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
         const r = await api.importApps(Array.isArray(parsed) ? parsed : parsed.apps || []);
         toast(`Imported ${r.added.length}${r.skipped.length ? `, skipped ${r.skipped.length} (${r.skipped[0].why})` : ""}.`, r.added.length ? "ok" : "warn");
       } catch (e) {
-        fail(e instanceof SyntaxError ? new Error("That file is not Harbor JSON.") : e);
+        fail(e instanceof SyntaxError ? new Error("That file is not Porthaven JSON.") : e);
       }
     }
 

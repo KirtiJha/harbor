@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="phg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2dd4bf"/><stop offset=".55" stop-color="#0891b2"/><stop offset="1" stop-color="#4f46e5"/></linearGradient>
+    <radialGradient id="phb" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fef3c7"/><stop offset=".45" stop-color="#fde68a" stop-opacity=".85"/><stop offset="1" stop-color="#fde68a" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#phg)"/>
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="2"/>
+  <path d="M21 50V14h11.5a11.5 11.5 0 0 1 0 23H21" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="32.5" cy="25.5" r="7" fill="url(#phb)"/>
+  <circle cx="32.5" cy="25.5" r="2.6" fill="#fff"/>
+  <path d="M30 47c2.6-2.6 5.4-2.6 8 0s5.4 2.6 8 0 5.4-2.6 8 0" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M34 54.5c2.2-2 4.4-2 6.6 0s4.4 2 6.6 0" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="2.6" stroke-linecap="round"/>
+</svg>

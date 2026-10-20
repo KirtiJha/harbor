@@ -1,12 +1,12 @@
-"""harbor: see and manage every app listening on a port.
+"""porthaven: see and manage every app listening on a port.
 
-  harbor                     open the Harbor dashboard (starts the server)
-  harbor ls [--all] [--json] list listening ports
-  harbor who <port>          what is on a port
-  harbor kill <port> [--app] [-y]   stop what is on a port (--app: the whole app, e.g. `make dev`)
-  harbor free [from] [-n N]  the next free ports
-  harbor open <port>         open a port in the browser
-  harbor service install     start Harbor at login (macOS, Linux, Windows); `uninstall` / `status`
+  porthaven                     open the Porthaven dashboard (starts the server)
+  porthaven ls [--all] [--json] list listening ports
+  porthaven who <port>          what is on a port
+  porthaven kill <port> [--app] [-y]   stop what is on a port (--app: the whole app, e.g. `make dev`)
+  porthaven free [from] [-n N]  the next free ports
+  porthaven open <port>         open a port in the browser
+  porthaven service install     start Porthaven at login (macOS, Linux, Windows); `uninstall` / `status`
 """
 from __future__ import annotations
 
@@ -20,10 +20,10 @@ import webbrowser
 
 from . import __version__, classify, probe
 from .control import ControlError
-from .core import Harbor
+from .core import Porthaven
 from .store import Store
 
-DEFAULT_PORT = int(os.environ.get("HARBOR_PORT", "7475"))
+DEFAULT_PORT = int(os.environ.get("PORTHAVEN_PORT", "7475"))
 C = {"dim": "\x1b[2m", "b": "\x1b[1m", "g": "\x1b[32m", "y": "\x1b[33m", "r": "\x1b[31m", "c": "\x1b[36m", "x": "\x1b[0m"}
 if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
     C = {k: "" for k in C}
@@ -39,7 +39,7 @@ def uptime(sec):
 
 
 def snapshot(show_all=False):
-    h = Harbor(Store())
+    h = Porthaven(Store())
     h.refresh(initial=True)
     deadline = time.time() + 2.0
     while h.probing and time.time() < deadline:
@@ -138,16 +138,16 @@ def cmd_open(args):
     return 0
 
 
-LABEL = "dev.harbor.dashboard"
+LABEL = "dev.porthaven.dashboard"
 PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
 
 
 def cmd_service(args):
-    """Start Harbor at login: launchd on macOS, a systemd user service on Linux, a logon task on Windows."""
+    """Start Porthaven at login: launchd on macOS, a systemd user service on Linux, a logon task on Windows."""
     import subprocess
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
-    logs = Path.home() / ".harbor" / "logs"
+    logs = Path.home() / ".porthaven" / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     if sys.platform == "darwin":
         return _service_launchd(args, root, logs, subprocess)
@@ -168,12 +168,12 @@ def _service_launchd(args, root, logs, subprocess):
         subprocess.run(["launchctl", "bootout", f"{domain}/{LABEL}"], capture_output=True)
         if os.path.exists(PLIST):
             os.remove(PLIST)
-        print("Harbor will no longer start at login.")
+        print("Porthaven will no longer start at login.")
         return 0
-    plist = {"Label": LABEL, "ProgramArguments": [str(root / "bin" / "harbor"), "serve", "--no-open", "--port", str(args.port)],
+    plist = {"Label": LABEL, "ProgramArguments": [str(root / "bin" / "porthaven"), "serve", "--no-open", "--port", str(args.port)],
              "RunAtLoad": True, "KeepAlive": {"SuccessfulExit": False},
              "EnvironmentVariables": {"PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin")},
-             "StandardOutPath": str(logs / "harbor.out.log"), "StandardErrorPath": str(logs / "harbor.err.log")}
+             "StandardOutPath": str(logs / "porthaven.out.log"), "StandardErrorPath": str(logs / "porthaven.err.log")}
     os.makedirs(os.path.dirname(PLIST), exist_ok=True)
     with open(PLIST, "wb") as f:
         plistlib.dump(plist, f)
@@ -182,31 +182,31 @@ def _service_launchd(args, root, logs, subprocess):
     if out.returncode:
         print(f"Wrote {PLIST} but launchctl refused it: {out.stderr.strip()}")
         return 2
-    print(f"Harbor now starts at login on http://localhost:{args.port}/  (undo: harbor service uninstall)")
+    print(f"Porthaven now starts at login on http://localhost:{args.port}/  (undo: porthaven service uninstall)")
     return 0
 
 
 def _service_systemd(args, root, subprocess):
-    unit = os.path.expanduser("~/.config/systemd/user/harbor.service")
+    unit = os.path.expanduser("~/.config/systemd/user/porthaven.service")
     ctl = ["systemctl", "--user"]
     if args.action == "status":
-        out = subprocess.run(ctl + ["is-active", "harbor"], capture_output=True, text=True)
+        out = subprocess.run(ctl + ["is-active", "porthaven"], capture_output=True, text=True)
         print(f"installed: {os.path.exists(unit)}  ({unit})\n{out.stdout.strip() or 'inactive'}")
         return 0
     if args.action == "uninstall":
-        subprocess.run(ctl + ["disable", "--now", "harbor"], capture_output=True)
+        subprocess.run(ctl + ["disable", "--now", "porthaven"], capture_output=True)
         if os.path.exists(unit):
             os.remove(unit)
         subprocess.run(ctl + ["daemon-reload"], capture_output=True)
-        print("Harbor will no longer start at login.")
+        print("Porthaven will no longer start at login.")
         return 0
     os.makedirs(os.path.dirname(unit), exist_ok=True)
     with open(unit, "w") as f:
         f.write(f"""[Unit]
-Description=Harbor, a dashboard for every local port
+Description=Porthaven, a dashboard for every local port
 
 [Service]
-ExecStart={root / "bin" / "harbor"} serve --no-open --port {args.port}
+ExecStart={root / "bin" / "porthaven"} serve --no-open --port {args.port}
 Restart=on-failure
 Environment=PATH={os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")}
 
@@ -214,31 +214,31 @@ Environment=PATH={os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")}
 WantedBy=default.target
 """)
     subprocess.run(ctl + ["daemon-reload"], capture_output=True)
-    out = subprocess.run(ctl + ["enable", "--now", "harbor"], capture_output=True, text=True)
+    out = subprocess.run(ctl + ["enable", "--now", "porthaven"], capture_output=True, text=True)
     if out.returncode:
         print(f"Wrote {unit} but systemctl refused it: {out.stderr.strip()}")
         return 2
-    print(f"Harbor now starts at login on http://localhost:{args.port}/  (undo: harbor service uninstall)")
+    print(f"Porthaven now starts at login on http://localhost:{args.port}/  (undo: porthaven service uninstall)")
     return 0
 
 
 def _service_windows(args, root, subprocess):
-    task = "Harbor"
+    task = "Porthaven"
     if args.action == "status":
         out = subprocess.run(["schtasks", "/Query", "/TN", task], capture_output=True, text=True)
         print("installed" if out.returncode == 0 else "not installed")
         return 0
     if args.action == "uninstall":
         subprocess.run(["schtasks", "/Delete", "/TN", task, "/F"], capture_output=True)
-        print("Harbor will no longer start at login.")
+        print("Porthaven will no longer start at login.")
         return 0
-    launcher = root / "bin" / "harbor.cmd"
+    launcher = root / "bin" / "porthaven.cmd"
     out = subprocess.run(["schtasks", "/Create", "/TN", task, "/SC", "ONLOGON", "/RL", "LIMITED", "/F",
                           "/TR", f'"{launcher}" serve --no-open --port {args.port}'], capture_output=True, text=True)
     if out.returncode:
         print(f"Task Scheduler refused it: {(out.stderr or out.stdout).strip()}")
         return 2
-    print(f"Harbor now starts when you sign in, on http://localhost:{args.port}/  (undo: harbor service uninstall)")
+    print(f"Porthaven now starts when you sign in, on http://localhost:{args.port}/  (undo: porthaven service uninstall)")
     return 0
 
 
@@ -246,32 +246,32 @@ def cmd_serve(args):
     from .server import serve
     port = args.port
     if not probe.port_free(port):
-        if probe.probe(port).get("server", "") and "Harbor" in (probe.probe(port).get("server") or ""):
-            print(f"Harbor is already running on http://localhost:{port}/")
+        if probe.probe(port).get("server", "") and "Porthaven" in (probe.probe(port).get("server") or ""):
+            print(f"Porthaven is already running on http://localhost:{port}/")
             if not args.no_open:
                 webbrowser.open(f"http://localhost:{port}/")
             return 0
         port = probe.free_ports(port + 1, 1)[0]
     url = f"http://localhost:{port}/"
-    h = Harbor(Store(), port)
+    h = Porthaven(Store(), port)
 
     def stop(*_):
         running = [m.name for m in h.managed.values() if m.alive]
-        print("\nStopping Harbor." + (f" Still running: {', '.join(running)} (Harbor picks them up again next time)." if running else ""))
+        print("\nStopping Porthaven." + (f" Still running: {', '.join(running)} (Porthaven picks them up again next time)." if running else ""))
         h.stop()
         os._exit(0)
 
     signal.signal(signal.SIGINT, stop)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, stop)
-    print(f"{C['b']}Harbor {__version__}{C['x']}  {C['c']}{url}{C['x']}   {C['dim']}(Ctrl-C to stop){C['x']}", flush=True)
+    print(f"{C['b']}Porthaven {__version__}{C['x']}  {C['c']}{url}{C['x']}   {C['dim']}(Ctrl-C to stop){C['x']}", flush=True)
     serve(h, port, ready=(lambda: webbrowser.open(url)) if not args.no_open else None)
     return 0
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="harbor", description="See and manage every app listening on a port.")
-    p.add_argument("--version", action="version", version=f"harbor {__version__}")
+    p = argparse.ArgumentParser(prog="porthaven", description="See and manage every app listening on a port.")
+    p.add_argument("--version", action="version", version=f"porthaven {__version__}")
     sub = p.add_subparsers(dest="cmd")
     s = sub.add_parser("serve", help="start the dashboard (default)")
     s.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -293,7 +293,7 @@ def main(argv=None):
     s.add_argument("start", type=int, nargs="?", default=3000)
     s.add_argument("-n", type=int, default=5)
     s.set_defaults(fn=cmd_free)
-    s = sub.add_parser("service", help="start Harbor at login (launchd, systemd or Task Scheduler)")
+    s = sub.add_parser("service", help="start Porthaven at login (launchd, systemd or Task Scheduler)")
     s.add_argument("action", choices=["install", "uninstall", "status"])
     s.add_argument("--port", type=int, default=DEFAULT_PORT)
     s.set_defaults(fn=cmd_service)

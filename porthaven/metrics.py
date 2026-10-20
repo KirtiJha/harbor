@@ -1,5 +1,5 @@
 """A week of minute-by-minute history (ports, memory, CPU, connections, memory per project) for the
-Activity and Insights views. Kept in memory and saved to ~/.harbor/metrics.json every few minutes."""
+Activity and Insights views. Kept in memory and saved to ~/.porthaven/metrics.json every few minutes."""
 from __future__ import annotations
 
 import collections

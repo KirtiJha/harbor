@@ -34,7 +34,7 @@ def run(args, timeout=5.0):
                              **({"creationflags": NO_WINDOW} if IS_WINDOWS else {}))
     except FileNotFoundError as err:
         need = "netstat and PowerShell" if IS_WINDOWS else "lsof and ps"
-        raise SystemError_(f"{args[0]} is not installed: {err}. Harbor needs {need}.") from err
+        raise SystemError_(f"{args[0]} is not installed: {err}. Porthaven needs {need}.") from err
     except subprocess.TimeoutExpired as err:
         raise SystemError_(f"{' '.join(args[:3])} took longer than {timeout}s.") from err
     # lsof exits 1 when nothing matched; that is an empty answer, not a failure.
@@ -287,7 +287,7 @@ def linux_listeners():
     out = {}
     for r in rows:
         pid = owners.get(r["inode"])
-        if pid is None:   # another user's socket (e.g. root's sshd): like lsof without sudo, Harbor can't see it
+        if pid is None:   # another user's socket (e.g. root's sshd): like lsof without sudo, Porthaven can't see it
             continue
         row = out.setdefault((pid, r["port"]), {"pid": pid, "port": r["port"], "command": "", "uid": r["uid"],
                                                "user": "", "addresses": []})
@@ -393,7 +393,7 @@ def _win_alive(pid):
 # ---------------------------------------------------------------- identity, launching and stopping
 
 def my_uid():
-    """The owner Harbor compares processes with: the user id on Unix, the login session on Windows."""
+    """The owner Porthaven compares processes with: the user id on Unix, the login session on Windows."""
     if IS_WINDOWS:
         import ctypes
         sid = ctypes.c_ulong()
@@ -411,7 +411,7 @@ def shell_argv(command):
 
 
 def spawn_options():
-    """Start an app detached from Harbor, so it keeps running when Harbor stops."""
+    """Start an app detached from Porthaven, so it keeps running when Porthaven stops."""
     if IS_WINDOWS:
         return {"creationflags": NEW_GROUP | NO_WINDOW}
     return {"start_new_session": True}
@@ -456,7 +456,7 @@ def terminate_group(pid, force=False):
 
 
 def group_leader(pid):
-    """True when pid still leads its own group, i.e. it is the app Harbor launched and not a reused pid."""
+    """True when pid still leads its own group, i.e. it is the app Porthaven launched and not a reused pid."""
     if IS_WINDOWS:
         return is_alive(pid)
     try:

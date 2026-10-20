@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Activity, type Insights, type Listener, type Snapshot } from "../api";
-import { useLocal, useNow } from "../useHarbor";
+import { useLocal, useNow } from "../usePorthaven";
 import { colorFor, cx, duration, mb } from "../util";
 import { Heatmap, StackedBars } from "./charts";
 import { Icon } from "./Icon";
@@ -17,11 +17,11 @@ export const RANGES: { id: Range; label: string; seconds: number; bucket: number
 export const EVENT: Record<Activity["type"], { label: string; color: string; icon: string; verb: string }> = {
   opened: { label: "Started listening", color: "#34d399", icon: "play", verb: "started listening on" },
   ready: { label: "Ready", color: "#2dd4bf", icon: "check", verb: "is ready on" },
-  started: { label: "Launched", color: "#22d3ee", icon: "bolt", verb: "launched by Harbor" },
+  started: { label: "Launched", color: "#22d3ee", icon: "bolt", verb: "launched by Porthaven" },
   closed: { label: "Stopped listening", color: "#64748b", icon: "stop", verb: "stopped listening on" },
   stopped: { label: "Stopped", color: "#94a3b8", icon: "stop", verb: "stopped" },
   exited: { label: "Exited", color: "#94a3b8", icon: "stop", verb: "exited" },
-  killed: { label: "Stopped from Harbor", color: "#fb923c", icon: "stop", verb: "stopped from Harbor" },
+  killed: { label: "Stopped from Porthaven", color: "#fb923c", icon: "stop", verb: "stopped from Porthaven" },
   crashed: { label: "Crashed", color: "#f87171", icon: "warn", verb: "crashed" },
   conflict: { label: "Port conflict", color: "#fbbf24", icon: "warn", verb: "could not get" },
 };
@@ -84,7 +84,7 @@ export function buildLanes(events: Activity[], listeners: Listener[], start: num
 
 function Timeline({ lanes: everyLane, start, now, onOpenPort }: { lanes: Lane[]; start: number; now: number; onOpenPort: (l: Listener) => void }) {
   const [all, setAll] = useState(false);
-  const [brief, setBrief] = useLocal("harbor.showBrief", false);
+  const [brief, setBrief] = useLocal("porthaven.showBrief", false);
   const hidden = everyLane.filter(isBrief).length;
   const lanes = brief ? everyLane : everyLane.filter((l) => !isBrief(l));
   const [tip, setTip] = useState<{ x: number; y: number; body: React.ReactNode } | null>(null);
@@ -157,8 +157,8 @@ function Timeline({ lanes: everyLane, start, now, onOpenPort }: { lanes: Lane[];
 /* ------------------------------------------------------------------ the view */
 
 export function ActivityView({ snap, onOpenPort, onClear }: { snap: Snapshot; onOpenPort: (l: Listener) => void; onClear: () => void }) {
-  const [range, setRange] = useLocal<Range>("harbor.activityRange", "24h");
-  const [off, setOff] = useLocal<string[]>("harbor.activityOff", []);
+  const [range, setRange] = useLocal<Range>("porthaven.activityRange", "24h");
+  const [off, setOff] = useLocal<string[]>("porthaven.activityOff", []);
   const [q, setQ] = useState("");
   const { data, loading } = useInsights(range, snap.activity.length);
   const week = useInsights("7d", snap.activity.length);

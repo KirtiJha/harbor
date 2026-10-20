@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an idea for Harbor
+description: Suggest an idea for Porthaven
 labels: [enhancement]
 body:
   - type: textarea

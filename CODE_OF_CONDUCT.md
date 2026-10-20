@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Harbor follows the [Contributor Covenant, version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
+Porthaven follows the [Contributor Covenant, version 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
 
 ## The short version
 
@@ -13,7 +13,7 @@ Harbor follows the [Contributor Covenant, version 2.1](https://www.contributor-c
 This applies in the repository, issues, discussions and pull requests, and when representing the project elsewhere.
 
 Report unacceptable behaviour privately to the maintainer through
-[a private security advisory](https://github.com/KirtiJha/harbor/security/advisories/new) (it reaches only the
+[a private security advisory](https://github.com/KirtiJha/porthaven/security/advisories/new) (it reaches only the
 maintainers), or by contacting [@KirtiJha](https://github.com/KirtiJha). Reports are handled confidentially.
 Maintainers may remove content and warn, suspend or ban contributors, as described in the Contributor Covenant's
 enforcement guidelines.

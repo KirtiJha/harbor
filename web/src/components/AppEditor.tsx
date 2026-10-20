@@ -5,7 +5,7 @@ import { Badge, Button, Field, inputCls, Modal, Spinner, Toggle } from "./ui";
 import { Icon } from "./Icon";
 import { cx, shortPath } from "../util";
 
-export function AppEditor({ app, onClose, onStart, groups = [], harborPort }: { app: Partial<App> | null; onClose: () => void; onStart: (a: App) => void; groups?: string[]; harborPort?: number }) {
+export function AppEditor({ app, onClose, onStart, groups = [], porthavenPort }: { app: Partial<App> | null; onClose: () => void; onStart: (a: App) => void; groups?: string[]; porthavenPort?: number }) {
   const { toast } = useUi();
   const [v, setV] = useState<Partial<App>>({});
   const [envText, setEnvText] = useState("");
@@ -51,7 +51,7 @@ export function AppEditor({ app, onClose, onStart, groups = [], harborPort }: { 
 
   return (
     <Modal open onClose={onClose} title={editing ? `Edit ${app.name}` : "Add an app"} width={620}
-      subtitle="Harbor runs the command in the folder with your shell, sets PORT, and replaces {port} in the command."
+      subtitle="Porthaven runs the command in the folder with your shell, sets PORT, and replaces {port} in the command."
       footer={<>
         {err && <span className="mr-auto max-w-[60%] text-xs text-bad">{err}</span>}
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -68,10 +68,10 @@ export function AppEditor({ app, onClose, onStart, groups = [], harborPort }: { 
           <input className={cx(inputCls, "font-mono text-xs")} value={v.command || ""} onChange={set("command")} placeholder="npm run dev" />
         </Field></div>
         <Field label="Group" hint="Apps in a group start and stop together (e.g. backend + frontend).">
-          <input className={inputCls} list="harbor-groups" value={v.group || ""} onChange={set("group")} placeholder="Shop" />
-          <datalist id="harbor-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+          <input className={inputCls} list="porthaven-groups" value={v.group || ""} onChange={set("group")} placeholder="Shop" />
+          <datalist id="porthaven-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
         </Field>
-        <Field label="Short name" hint={<>Stable address: <span className="font-mono">http://{(v.slug || slug(v.name || "app"))}.localhost:{harborPort || 7475}</span></>}>
+        <Field label="Short name" hint={<>Stable address: <span className="font-mono">http://{(v.slug || slug(v.name || "app"))}.localhost:{porthavenPort || 7475}</span></>}>
           <input className={cx(inputCls, "font-mono text-xs")} value={v.slug || ""} onChange={set("slug")} placeholder={slug(v.name || "my-app")} />
         </Field>
         <Field label="Open path" hint="Where “Open” goes, e.g. /docs"><input className={cx(inputCls, "font-mono text-xs")} value={v.openPath || ""} onChange={set("openPath")} /></Field>
@@ -79,7 +79,7 @@ export function AppEditor({ app, onClose, onStart, groups = [], harborPort }: { 
           <button type="button" key={c || "auto"} onClick={() => setV({ ...v, color: c })} title={c || "automatic"}
             className={cx("h-6 w-6 rounded-md border", (v.color || "") === c ? "ring-2 ring-accent ring-offset-2 ring-offset-panel" : "border-line-2")}
             style={{ background: c || "conic-gradient(#2dd4bf,#60a5fa,#a78bfa,#f472b6,#fbbf24,#2dd4bf)" }} />))}</div></Field>
-        <div className="col-span-2"><Field label="Environment" hint="One NAME=value per line. Kept in ~/.harbor/state.json, so do not put secrets here; let the app read its own .env.">
+        <div className="col-span-2"><Field label="Environment" hint="One NAME=value per line. Kept in ~/.porthaven/state.json, so do not put secrets here; let the app read its own .env.">
           <textarea className={cx(inputCls, "min-h-[70px] font-mono text-xs")} value={envText} onChange={(e) => setEnvText(e.target.value)} placeholder={"NODE_ENV=development\nDEBUG=1"} />
         </Field></div>
         <div className="col-span-2"><Toggle checked={!!v.autoRestart} onChange={(b) => setV({ ...v, autoRestart: b })} label={<span>Restart automatically if it crashes <span className="text-faint">(up to 3 times in 2 minutes)</span></span>} /></div>

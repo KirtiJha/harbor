@@ -1,21 +1,21 @@
 <div align="center">
 
-<img src="web/public/harbor.svg" width="72" alt="Harbor logo" />
+<img src="web/public/porthaven.svg" width="72" alt="Porthaven logo" />
 
-# Harbor
+# Porthaven
 
-**Every port on your machine, in one harbor.**
+**A safe haven for every port on your machine.**
 
 See every app listening on a port: what it is, which project it belongs to, whether it answers.
 Open it, stop it, restart it or start it again in one click.
 
-[![CI](https://github.com/KirtiJha/harbor/actions/workflows/ci.yml/badge.svg)](https://github.com/KirtiJha/harbor/actions/workflows/ci.yml)
+[![CI](https://github.com/KirtiJha/porthaven/actions/workflows/ci.yml/badge.svg)](https://github.com/KirtiJha/porthaven/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2dd4bf.svg)](LICENSE)
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-60a5fa.svg)
 ![macOS · Linux · Windows](https://img.shields.io/badge/runs%20on-macOS%20·%20Linux%20·%20Windows-a78bfa.svg)
 ![Zero dependencies](https://img.shields.io/badge/backend%20dependencies-0-34d399.svg)
 
-<img src="docs/images/hero.jpg" alt="Harbor landing page with a live preview of the dashboard" width="900" />
+<img src="docs/images/hero.jpg" alt="Porthaven landing page with a live preview of the dashboard" width="900" />
 
 </div>
 
@@ -28,7 +28,7 @@ Every project brings a dev server, an API, a database and a watcher. They pile u
 - `kill <pid>` hits a child process, and `make dev` starts it again.
 - A server bound to `0.0.0.0` is reachable from the café Wi-Fi. Last week's prototype is still holding 400 MB.
 
-Harbor turns that into one live, searchable dashboard, with a command line for when you are already in a terminal.
+Porthaven turns that into one live, searchable dashboard, with a command line for when you are already in a terminal.
 
 ## Quick start
 
@@ -37,24 +37,24 @@ You need Python 3.9 or newer. Node 20+ is needed only once, to build the UI.
 **macOS / Linux**
 
 ```bash
-git clone https://github.com/KirtiJha/harbor.git && cd harbor
-make run          # builds the UI the first time, starts Harbor, opens http://localhost:7475
-make install      # optional: a `harbor` command on your PATH (~/.local/bin)
+git clone https://github.com/KirtiJha/porthaven.git && cd porthaven
+make run          # builds the UI the first time, starts Porthaven, opens http://localhost:7475
+make install      # optional: a `porthaven` command on your PATH (~/.local/bin)
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-git clone https://github.com/KirtiJha/harbor.git; cd harbor
+git clone https://github.com/KirtiJha/porthaven.git; cd porthaven
 cd web; npm install; npm run build; cd ..
-bin\harbor.cmd    # starts Harbor and opens http://localhost:7475
+bin\porthaven.cmd    # starts Porthaven and opens http://localhost:7475
 ```
 
 The tour of every feature is at http://localhost:7475/welcome.
 
 ## Features
 
-<img src="docs/images/features.jpg" alt="Harbor features" width="900" />
+<img src="docs/images/features.jpg" alt="Porthaven features" width="900" />
 
 ### See
 - **Live port map.** Every listening TCP port, refreshed every two seconds and grouped by project. Each row shows:
@@ -67,11 +67,11 @@ The tour of every feature is at http://localhost:7475/welcome.
 - **Docker-aware.** Published container ports show the container and image.
 
 ### Act
-- **Stop the whole app, not just the pid.** Harbor walks up from the port's process through launchers
+- **Stop the whole app, not just the pid.** Porthaven walks up from the port's process through launchers
   (`make`, `npm`, shells, reloaders) and stops the whole tree. It stops at your terminal, editor or agent.
 - **Graceful first.** SIGTERM (or `taskkill`) first; force only after a grace period you choose.
 - **Bulk stop** of several ports or apps, and a one-click clean-up of idle servers.
-- **Guard rails.** No sudo, ever. Harbor won't stop itself, other users' processes, or anything it doesn't show.
+- **Guard rails.** No sudo, ever. Porthaven won't stop itself, other users' processes, or anything it doesn't show.
   System services and desktop apps need you to type the port number to confirm.
 
 ### Run
@@ -79,11 +79,11 @@ The tour of every feature is at http://localhost:7475/welcome.
   - Output is live and coloured, with clickable URLs and a jump to error lines.
   - Groups start and stop together, and crashed apps can restart automatically.
 - **Port conflicts handled before they happen.** See who holds the port, then take the next free one
-  (Harbor sets `PORT` and fills `{port}` in the command) or take the port over.
+  (Porthaven sets `PORT` and fills `{port}` in the command) or take the port over.
 - **Stable names.** `http://shop.localhost:7475` reaches the app on whatever port it is on today, websockets and
   hot reload included.
-- **Outlives restarts.** Apps keep running when Harbor stops or restarts, and Harbor picks them up again.
-- **Find projects.** Harbor scans a folder for npm, pnpm and yarn scripts, Makefile targets, Django, FastAPI,
+- **Outlives restarts.** Apps keep running when Porthaven stops or restarts, and Porthaven picks them up again.
+- **Find projects.** Porthaven scans a folder for npm, pnpm and yarn scripts, Makefile targets, Django, FastAPI,
   Flask and Streamlit apps, and Compose files.
 
 ### Understand
@@ -108,18 +108,18 @@ The tour of every feature is at http://localhost:7475/welcome.
 ## Command line
 
 ```bash
-harbor                  # the dashboard (same as `harbor serve`)
-harbor ls [--all]       # listening ports; --json for scripts
-harbor who 5173         # what is on a port: command, folder, app, HTTP answer
-harbor kill 5173 --app  # stop the whole app on a port (asks first; -y to skip)
-harbor free 3000 -n 5   # the next free ports
-harbor open 5173        # open in the browser
-harbor service install  # start at login (launchd, systemd or Task Scheduler); uninstall / status
+porthaven                  # the dashboard (same as `porthaven serve`)
+porthaven ls [--all]       # listening ports; --json for scripts
+porthaven who 5173         # what is on a port: command, folder, app, HTTP answer
+porthaven kill 5173 --app  # stop the whole app on a port (asks first; -y to skip)
+porthaven free 3000 -n 5   # the next free ports
+porthaven open 5173        # open in the browser
+porthaven service install  # start at login (launchd, systemd or Task Scheduler); uninstall / status
 ```
 
 ## How it works
 
-<img src="docs/images/architecture.jpg" alt="Harbor architecture" width="900" />
+<img src="docs/images/architecture.jpg" alt="Porthaven architecture" width="900" />
 
 ```mermaid
 flowchart LR
@@ -131,7 +131,7 @@ flowchart LR
   Engine --> API["Local server<br/>JSON API · live stream"] --> UI["Dashboard & CLI"]
   Engine --> Proxy["Stable names<br/>app.localhost → port"]
   Engine <--> Supervisor["Supervisor<br/>saved apps · logs"]
-  Engine <--> Store[("~/.harbor<br/>apps · notes · history")]
+  Engine <--> Store[("~/.porthaven<br/>apps · notes · history")]
 ```
 
 A small local server reads the machine every two seconds (about 0.2 s of work on macOS). It works out what each
@@ -140,10 +140,10 @@ picture to your browser. Everything is the Python standard library, plus the too
 
 ## Security
 
-- **Loopback only.** Harbor listens on `127.0.0.1` and `::1`, never on your network.
+- **Loopback only.** Porthaven listens on `127.0.0.1` and `::1`, never on your network.
 - **DNS rebinding blocked.** It answers only requests addressed to its own `localhost` port.
-- **Session token.** Every change needs a per-session token that only Harbor's own page can read.
-- **No sudo, no telemetry.** State lives in `~/.harbor` (move it with `HARBOR_HOME`).
+- **Session token.** Every change needs a per-session token that only Porthaven's own page can read.
+- **No sudo, no telemetry.** State lives in `~/.porthaven` (move it with `PORTHAVEN_HOME`).
 
 See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 

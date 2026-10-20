@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type Activity, type Listener, type Snapshot } from "../api";
-import { useNow } from "../useHarbor";
+import { useNow } from "../usePorthaven";
 import type { Actions } from "../actions";
 import { ago, clock, cx, duration, mb } from "../util";
 import { Icon } from "./Icon";
@@ -109,8 +109,8 @@ export function WatchList({ snap, onSelect }: { snap: Snapshot; onSelect: (l: Li
 const EV: Record<Activity["type"], { icon: string; tone: string; verb: string }> = {
   opened: { icon: "play", tone: "text-ok", verb: "started listening on" },
   closed: { icon: "stop", tone: "text-muted", verb: "stopped listening on" },
-  killed: { icon: "stop", tone: "text-bad", verb: "stopped from Harbor" },
-  started: { icon: "play", tone: "text-accent", verb: "launched by Harbor" },
+  killed: { icon: "stop", tone: "text-bad", verb: "stopped from Porthaven" },
+  started: { icon: "play", tone: "text-accent", verb: "launched by Porthaven" },
   ready: { icon: "check", tone: "text-ok", verb: "is ready on" },
   stopped: { icon: "stop", tone: "text-muted", verb: "stopped" },
   exited: { icon: "stop", tone: "text-muted", verb: "exited" },
@@ -165,7 +165,7 @@ export function ScanStatus({ snap, conn }: { snap: Snapshot | null; conn: string
     <button onClick={async () => { setBusy(true); await api.refresh().catch(() => {}); setBusy(false); }} title="Scan now"
       className="flex items-center gap-2 rounded-lg px-2 py-1 text-[11px] text-muted hover:bg-panel-2">
       {busy ? <Spinner size={10} /> : <Dot tone={conn === "live" && age < 15 ? "ok" : conn === "lost" ? "bad" : "warn"} pulse={conn === "live"} />}
-      {conn === "lost" ? "Harbor not reachable, retrying…" : conn === "connecting" ? "connecting…" : <>live · {snap?.scanMs ?? "–"} ms scan</>}
+      {conn === "lost" ? "Porthaven not reachable, retrying…" : conn === "connecting" ? "connecting…" : <>live · {snap?.scanMs ?? "–"} ms scan</>}
     </button>
   );
 }

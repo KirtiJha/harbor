@@ -1,4 +1,4 @@
-"""Harbor's saved state in ~/.harbor (or $HARBOR_HOME): apps, notes on ports, settings, activity."""
+"""Porthaven's saved state in ~/.porthaven (or $PORTHAVEN_HOME): apps, notes on ports, settings, activity."""
 from __future__ import annotations
 
 import json
@@ -13,7 +13,17 @@ DEFAULT_SETTINGS = {"scanInterval": 2.0, "probeInterval": 15.0, "graceSeconds": 
 
 
 def home():
-    return Path(os.environ.get("HARBOR_HOME") or Path.home() / ".harbor")
+    """~/.porthaven (or $PORTHAVEN_HOME). State from before the rename (~/.harbor) moves over on first use."""
+    explicit = os.environ.get("PORTHAVEN_HOME") or os.environ.get("HARBOR_HOME")
+    if explicit:
+        return Path(explicit)
+    new, old = Path.home() / ".porthaven", Path.home() / ".harbor"
+    if not new.exists() and (old / "state.json").exists():
+        try:
+            old.rename(new)
+        except OSError:
+            return old
+    return new
 
 
 class Store:

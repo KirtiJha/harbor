@@ -1,4 +1,4 @@
-"""Harbor tests: parsers and rules on recorded command output, plus the real server and a real app run
+"""Porthaven tests: parsers and rules on recorded command output, plus the real server and a real app run
 on this machine (a throwaway `python3 -m http.server` on a free port)."""
 import json
 import os
@@ -12,10 +12,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from harbor import classify, probe, system
-from harbor.core import Harbor, slugify
-from harbor.discover import discover
-from harbor.store import Store
+from porthaven import classify, probe, system
+from porthaven.core import Porthaven, slugify
+from porthaven.discover import discover
+from porthaven.store import Store
 
 LSOF_LISTEN = """p6072
 cnode
@@ -171,7 +171,7 @@ class Rules(unittest.TestCase):
     def test_workers_sharing_a_socket_become_one_row(self):
         rows = [{"port": 8000, "pid": 300, "cpu": 0.1, "memMb": 58.6, "connections": 0, "display": "uvicorn"},
                 {"port": 8000, "pid": 301, "cpu": 0.2, "memMb": 39.1, "connections": 2, "display": "python"}]
-        out = Harbor._merge_workers(rows, self.procs)
+        out = Porthaven._merge_workers(rows, self.procs)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["pid"], 300)
         self.assertEqual(out[0]["workers"][0]["pid"], 301)
@@ -182,7 +182,7 @@ class NewRules(unittest.TestCase):
     def test_slugs_are_url_safe_and_unique(self):
         self.assertEqual(slugify("Shop web!"), "shop-web")
         with tempfile.TemporaryDirectory() as d:
-            h = Harbor(Store(d))
+            h = Porthaven(Store(d))
             a = h.store.upsert_app({"name": "Web", "cwd": d, "command": "x"})
             b = h.store.upsert_app({"name": "web", "cwd": d, "command": "y"})
             c = h.store.upsert_app({"name": "API", "cwd": d, "command": "z", "slug": "api"})
@@ -190,7 +190,7 @@ class NewRules(unittest.TestCase):
 
     def test_idle_needs_hours_without_connections_or_cpu(self):
         with tempfile.TemporaryDirectory() as d:
-            h = Harbor(Store(d))
+            h = Porthaven(Store(d))
             now, four_hours = time.time(), 4 * 3600
             old = {"cpu": 0.0, "elapsed": 2 * 86400}
             self.assertGreater(h._idle_for(5173, "dev", old, 0, now, four_hours), four_hours)
@@ -202,14 +202,14 @@ class NewRules(unittest.TestCase):
 
 
 class SurvivesRestart(unittest.TestCase):
-    def test_an_app_keeps_running_and_is_picked_up_by_the_next_harbor(self):
+    def test_an_app_keeps_running_and_is_picked_up_by_the_next_porthaven(self):
         # Not TemporaryDirectory(): on Windows the stopped app's log may still be open for a moment, and a failed
         # cleanup would fail a test whose checks all passed.
         d = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, d, True)
         if True:
             port = free_port()
-            first = Harbor(Store(d))
+            first = Porthaven(Store(d))
             app = first.store.upsert_app({"name": "demo", "cwd": d, "command": f"{sys.executable} -u -m http.server {port} --bind 127.0.0.1"})
             first.refresh(initial=True)
             first._publish()
@@ -219,12 +219,12 @@ class SurvivesRestart(unittest.TestCase):
                     break
                 time.sleep(0.1)
             pid = first.managed[app["id"]].pid
-            first.stop()                                 # Harbor stops; the app must not
+            first.stop()                                 # Porthaven stops; the app must not
             self.assertTrue(system.is_alive(pid))
-            self.assertFalse(probe.port_free(port), "the app stopped when Harbor stopped")
-            second = Harbor(Store(d))
-            second.managed.update(__import__("harbor.control", fromlist=["Managed"]).Managed.adopt_all(second.store, second._on_exit))
-            self.assertIn(app["id"], second.managed, "the next Harbor did not pick the app up")
+            self.assertFalse(probe.port_free(port), "the app stopped when Porthaven stopped")
+            second = Porthaven(Store(d))
+            second.managed.update(__import__("porthaven.control", fromlist=["Managed"]).Managed.adopt_all(second.store, second._on_exit))
+            self.assertIn(app["id"], second.managed, "the next Porthaven did not pick the app up")
             m = second.managed[app["id"]]
             self.assertEqual((m.pid, m.status), (pid, "running"))
             m.stop(grace=2)
@@ -275,14 +275,14 @@ def free_port():
 
 
 class LiveServer(unittest.TestCase):
-    """Harbor's real HTTP server on a free port, with its state in a temporary folder."""
+    """Porthaven's real HTTP server on a free port, with its state in a temporary folder."""
 
     @classmethod
     def setUpClass(cls):
-        from harbor.server import serve
+        from porthaven.server import serve
         cls.home = tempfile.TemporaryDirectory()
         cls.port = free_port()
-        cls.h = Harbor(Store(cls.home.name), cls.port)
+        cls.h = Porthaven(Store(cls.home.name), cls.port)
         cls.crash = []
 
         def run():
@@ -326,7 +326,7 @@ class LiveServer(unittest.TestCase):
         if body is not None:
             req.add_header("Content-Type", "application/json")
         if token and method != "GET":
-            req.add_header("X-Harbor-Token", cls.token)
+            req.add_header("X-Porthaven-Token", cls.token)
         try:
             with NO_PROXY.open(req, timeout=15) as r:
                 return r.status, json.loads(r.read())
@@ -343,7 +343,7 @@ class LiveServer(unittest.TestCase):
         self.h.refresh()
         snap = self.get("/api/state")
         me = [r for r in snap["listeners"] if r["port"] == self.port]
-        self.assertTrue(me, f"Harbor's own port {self.port} is missing. Scan error: {snap['error']}; "
+        self.assertTrue(me, f"Porthaven's own port {self.port} is missing. Scan error: {snap['error']}; "
                             f"ports seen: {sorted({r['port'] for r in snap['listeners']})}")
         self.assertEqual(me[0]["risk"], "self")
         status, body = self.call("POST", "/api/kill", {"pid": os.getpid(), "mode": "process"})
@@ -397,7 +397,7 @@ class LiveServer(unittest.TestCase):
             req.add_header("Host", f"demo.localhost:{self.port}")
             with NO_PROXY.open(req, timeout=10) as r:
                 self.assertIn(b"Directory listing", r.read(), "demo.localhost did not reach the app")
-            for _ in range(30):   # Harbor follows the log file a few times a second
+            for _ in range(30):   # Porthaven follows the log file a few times a second
                 logs = self.get(f"/api/apps/{app['id']}/logs")
                 if any("Serving HTTP" in ln["text"] for ln in logs["lines"]):
                     break
@@ -412,7 +412,7 @@ class LiveServer(unittest.TestCase):
             self.assertTrue(probe.port_free(alt), "the app's port is still taken after stopping it")
             time.sleep(0.3)
             st = next(a for a in self.get("/api/state")["apps"] if a["id"] == app["id"])
-            self.assertEqual(st["run"]["status"], "stopped", "a stop from Harbor must not be reported as a crash")
+            self.assertEqual(st["run"]["status"], "stopped", "a stop from Porthaven must not be reported as a crash")
         finally:
             blocker.close()
 

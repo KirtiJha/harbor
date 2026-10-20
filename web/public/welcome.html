@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="dark" />
-  <meta name="application-name" content="Harbor" />
-  <meta name="description" content="Harbor shows every app listening on a port on your machine (macOS, Linux or Windows), which project it belongs to and whether it answers, and lets you open, stop, restart or start it in one click." />
-  <title>Harbor · every port on your machine, in one place</title>
-  <link rel="icon" type="image/svg+xml" href="harbor.svg" />
+  <meta name="application-name" content="Porthaven" />
+  <meta name="description" content="Porthaven shows every app listening on a port on your machine (macOS, Linux or Windows), which project it belongs to and whether it answers, and lets you open, stop, restart or start it in one click." />
+  <title>Porthaven · a safe haven for every port on your machine</title>
+  <link rel="icon" type="image/svg+xml" href="porthaven.svg" />
   <link rel="stylesheet" href="welcome.css" />
 </head>
 <body>
@@ -16,8 +16,8 @@
 
   <header class="nav">
     <a class="brand" href="#top">
-      <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#0e7490"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/><path d="M16 8v15M11.5 11.5h9M8.5 17.5c0 4.5 3.4 7 7.5 7s7.5-2.5 7.5-7" fill="none" stroke="#ecfeff" stroke-width="2.4" stroke-linecap="round"/><circle cx="16" cy="7.5" r="2" fill="none" stroke="#ecfeff" stroke-width="1.8"/></svg>
-      <span>Harbor</span>
+      <img src="porthaven.svg" width="30" height="30" alt="Porthaven logo" />
+      <span>Porthaven</span>
     </a>
     <nav>
       <a href="#problem">Problem</a>
@@ -34,17 +34,17 @@
     <section class="hero">
       <div class="hero-copy reveal">
         <span class="eyebrow"><span class="dot live"></span> macOS · Linux · Windows · refreshes every 2 seconds</span>
-        <h1>Every port on your machine,<br /><span class="grad">in one harbor.</span></h1>
-        <p class="lead">Ten dev servers, three databases, a forgotten Vite from Tuesday. Harbor shows what is listening, which project it belongs to and whether it answers. Open it, stop it, restart it or start it again in one click.</p>
+        <h1>Every port on your machine,<br /><span class="grad">one safe haven.</span></h1>
+        <p class="lead">Ten dev servers, three databases, a forgotten Vite from Tuesday. Porthaven shows what is listening, which project it belongs to and whether it answers. Open it, stop it, restart it or start it again in one click.</p>
         <div class="cta">
           <a class="btn btn-primary" href="/">Open the dashboard</a>
           <a class="btn btn-ghost" href="#how">See how it works</a>
         </div>
-        <div class="install"><span class="prompt">$</span> <code>cd harbor &amp;&amp; make run</code> <button class="copy" data-copy="cd harbor && make run" aria-label="Copy">copy</button></div>
+        <div class="install"><span class="prompt">$</span> <code>cd porthaven &amp;&amp; make run</code> <button class="copy" data-copy="cd porthaven && make run" aria-label="Copy">copy</button></div>
         <p class="tiny">Python standard library and the tools your OS already has. Runs on macOS, Linux and Windows. No account, no cloud, nothing leaves your machine.</p>
       </div>
 
-      <div class="hero-visual reveal" aria-label="An animated preview of the Harbor dashboard">
+      <div class="hero-visual reveal" aria-label="An animated preview of the Porthaven dashboard">
         <div class="window">
           <div class="win-bar"><i></i><i></i><i></i><span>localhost:7475</span></div>
           <div class="win-tabs"><b class="on">Ports <em>6</em></b><b>Apps <em>2/3</em></b><b>Activity</b><span class="live-pill"><span class="dot live"></span>live · 190 ms</span></div>
@@ -157,7 +157,7 @@
           <text x="1075" y="200" class="ns" text-anchor="middle">UI</text>
 
           <!-- store -->
-          <g class="node store" data-step="5" transform="translate(830 340)"><rect width="170" height="80" rx="14"/><text x="85" y="34" class="nt">~/.harbor</text><text x="85" y="56" class="ns">apps · notes · logs</text></g>
+          <g class="node store" data-step="5" transform="translate(830 340)"><rect width="170" height="80" rx="14"/><text x="85" y="34" class="nt">~/.porthaven</text><text x="85" y="56" class="ns">apps · notes · logs</text></g>
           <path d="M730 230 C 780 230, 780 380, 830 380" fill="none" stroke="#a78bfa" stroke-opacity=".35" stroke-width="1.5" stroke-dasharray="4 5" class="dash"/>
         </svg>
 
@@ -178,12 +178,12 @@
       <div class="reveal">
         <span class="kicker">Stop whole app</span>
         <h2>Stops what started it, not just the process on the port</h2>
-        <p>The process on the port is rarely the one you meant. Harbor walks up the process tree through launchers (<code>make</code>, <code>npm</code>, shells running a command, reloaders) and stops at your terminal, editor or agent. It never goes past them.</p>
-        <p>Then it asks politely (SIGTERM), waits a few seconds, and forces only the processes still running (SIGKILL). Desktop apps and system services need you to type the port number first, and Harbor never uses sudo.</p>
+        <p>The process on the port is rarely the one you meant. Porthaven walks up the process tree through launchers (<code>make</code>, <code>npm</code>, shells running a command, reloaders) and stops at your terminal, editor or agent. It never goes past them.</p>
+        <p>Then it asks politely (SIGTERM), waits a few seconds, and forces only the processes still running (SIGKILL). Desktop apps and system services need you to type the port number first, and Porthaven never uses sudo.</p>
       </div>
       <div class="tree reveal" aria-label="An animated process tree being stopped">
         <div class="tn host">zsh <span>your terminal · untouched</span></div>
-        <div class="tn root" style="--d:1">make dev <span>← Harbor stops here</span></div>
+        <div class="tn root" style="--d:1">make dev <span>← Porthaven stops here</span></div>
         <div class="tn" style="--d:2">sh -c "npm run dev"</div>
         <div class="tn" style="--d:3">npm run dev</div>
         <div class="tn port" style="--d:4">node vite <b>:5173</b></div>
@@ -203,7 +203,7 @@
       <div class="reveal">
         <span class="kicker">Stable names</span>
         <h2>Bookmarks that keep working when the port changes</h2>
-        <p>Give an app a short name and open <code>http://name.localhost:7475</code>. Harbor sends it to whatever port the app is on now, websockets and hot reload included. When Shop lands on :5174 because Docs site got :5173 first, the bookmark still works.</p>
+        <p>Give an app a short name and open <code>http://name.localhost:7475</code>. Porthaven sends it to whatever port the app is on now, websockets and hot reload included. When Shop lands on :5174 because Docs site got :5173 first, the bookmark still works.</p>
         <p class="muted">Browsers send <code>*.localhost</code> to your own machine. No DNS setup, no hosts file, no certificates.</p>
       </div>
     </section>
@@ -251,7 +251,7 @@
               <span class="mt c1">uvicorn :8000</span>
             </div>
           </div>
-          <div class="cap"><h3>Stop the whole app</h3><p>Harbor stops the launcher and everything under it, and leaves your terminal alone.</p></div>
+          <div class="cap"><h3>Stop the whole app</h3><p>Porthaven stops the launcher and everything under it, and leaves your terminal alone.</p></div>
         </article>
 
         <!-- conflicts -->
@@ -320,15 +320,15 @@
             <div class="bell">🔔</div>
             <div class="notif"><span class="dot bad"></span><div><b>:8000 Shop API went down</b><small>2 seconds ago · <u>Start it</u></small></div></div>
           </div>
-          <div class="cap"><h3>Watch and notify</h3><p>Pick the ports you depend on, and Harbor shows a banner and a desktop notification when one goes down.</p></div>
+          <div class="cap"><h3>Watch and notify</h3><p>Pick the ports you depend on, and Porthaven shows a banner and a desktop notification when one goes down.</p></div>
         </article>
 
         <!-- survives -->
         <article class="tile t-survive reveal">
           <div class="viz">
-            <div class="sv"><span class="hb">Harbor</span><span class="app">Shop web <i class="dot ok"></i></span></div>
+            <div class="sv"><span class="hb">Porthaven</span><span class="app">Shop web <i class="dot ok"></i></span></div>
           </div>
-          <div class="cap"><h3>Outlives restarts</h3><p>Apps keep running when Harbor restarts, and it picks them up again with their logs.</p></div>
+          <div class="cap"><h3>Outlives restarts</h3><p>Apps keep running when Porthaven restarts, and it picks them up again with their logs.</p></div>
         </article>
       </div>
 
@@ -349,11 +349,11 @@
         <h2>The same answers in your terminal</h2>
         <p>Every dashboard question has a short command. <code>who</code> tells you what is on a port, <code>kill --app</code> stops it properly, and <code>free</code> finds a port you can use.</p>
         <ul class="cmds">
-          <li><code>harbor ls</code> listening ports (<code>--all</code>, <code>--json</code>)</li>
-          <li><code>harbor who 5173</code> command, folder, app, HTTP answer</li>
-          <li><code>harbor kill 5173 --app</code> stop the whole app</li>
-          <li><code>harbor free 3000 -n 5</code> next free ports</li>
-          <li><code>harbor service install</code> start at login</li>
+          <li><code>porthaven ls</code> listening ports (<code>--all</code>, <code>--json</code>)</li>
+          <li><code>porthaven who 5173</code> command, folder, app, HTTP answer</li>
+          <li><code>porthaven kill 5173 --app</code> stop the whole app</li>
+          <li><code>porthaven free 3000 -n 5</code> next free ports</li>
+          <li><code>porthaven service install</code> start at login</li>
         </ul>
       </div>
       <div class="terminal reveal">
@@ -369,11 +369,11 @@
         <h2>A process killer you can trust</h2>
       </div>
       <div class="safety">
-        <div class="safe reveal"><b>127.0.0.1 only</b><p>Harbor never listens on your network.</p></div>
+        <div class="safe reveal"><b>127.0.0.1 only</b><p>Porthaven never listens on your network.</p></div>
         <div class="safe reveal"><b>No DNS rebinding</b><p>It answers only requests addressed to its own localhost port.</p></div>
-        <div class="safe reveal"><b>Session token</b><p>Every change needs a token only Harbor's own page can read, so other sites can't send it commands.</p></div>
+        <div class="safe reveal"><b>Session token</b><p>Every change needs a token only Porthaven's own page can read, so other sites can't send it commands.</p></div>
         <div class="safe reveal"><b>Guard rails</b><p>It can't stop itself, other users' processes, or anything outside what it shows. Desktop apps and system services need you to type the port number.</p></div>
-        <div class="safe reveal"><b>No sudo, no cloud</b><p>Your user's processes only. State stays in <code>~/.harbor</code>.</p></div>
+        <div class="safe reveal"><b>No sudo, no cloud</b><p>Your user's processes only. State stays in <code>~/.porthaven</code>.</p></div>
         <div class="safe reveal"><b>Zero dependencies</b><p>The backend is the Python standard library, so there's nothing to install or audit.</p></div>
       </div>
     </section>
@@ -382,16 +382,16 @@
     <section class="section start reveal">
       <h2>Bring order to localhost in a minute</h2>
       <div class="steps3">
-        <div><span>1</span><code>cd harbor &amp;&amp; make run</code><p>Builds the UI once and opens the dashboard.</p></div>
-        <div><span>2</span><code>make install</code><p>Puts <code>harbor</code> on your PATH.</p></div>
-        <div><span>3</span><code>harbor service install</code><p>Optional: start when you sign in.</p></div>
+        <div><span>1</span><code>cd porthaven &amp;&amp; make run</code><p>Builds the UI once and opens the dashboard.</p></div>
+        <div><span>2</span><code>make install</code><p>Puts <code>porthaven</code> on your PATH.</p></div>
+        <div><span>3</span><code>porthaven service install</code><p>Optional: start when you sign in.</p></div>
       </div>
       <a class="btn btn-primary" href="/">Open the dashboard →</a>
     </section>
   </main>
 
   <footer class="foot">
-    <span>Harbor · a local tool. Nothing leaves your machine.</span>
+    <span>Porthaven · a local tool. Nothing leaves your machine.</span>
     <span><a href="/">Dashboard</a> · <a href="#how">How it works</a> · <a href="#cli">CLI</a></span>
   </footer>
 

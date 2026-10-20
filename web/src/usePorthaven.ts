@@ -3,8 +3,8 @@ import type { Activity, Snapshot } from "./api";
 
 export type Conn = "connecting" | "live" | "lost";
 
-/** The live picture from Harbor's event stream; reconnects on its own when Harbor restarts. */
-export function useHarbor(onEvents: (e: Activity[]) => void) {
+/** The live picture from Porthaven's event stream; reconnects on its own when Porthaven restarts. */
+export function usePorthaven(onEvents: (e: Activity[]) => void) {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [conn, setConn] = useState<Conn>("connecting");
   const cb = useRef(onEvents);

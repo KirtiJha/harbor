@@ -45,12 +45,12 @@ export function Palette({ open, onClose, snap, actions, nav }: {
       { id: "nav-apps", label: "Go to Apps", icon: "play", group: "Go", run: () => nav.go("apps") },
       { id: "nav-activity", label: "Go to Activity", icon: "activity", group: "Go", run: () => nav.go("activity") },
       { id: "nav-insights", label: "Go to Insights", icon: "sparkle", group: "Go", run: () => nav.go("insights") },
-      { id: "new-app", label: "Add an app", icon: "plus", group: "Harbor", run: nav.newApp },
-      { id: "discover", label: "Find projects on this machine", icon: "radar", group: "Harbor", run: nav.discover },
-      { id: "refresh", label: "Scan now", icon: "refresh", group: "Harbor", run: () => void api.refresh() },
-      { id: "theme", label: "Toggle light / dark", icon: "sun", group: "Harbor", run: nav.theme },
-      { id: "settings", label: "Settings", icon: "settings", group: "Harbor", run: nav.settings },
-      { id: "help", label: "Keyboard shortcuts", icon: "keyboard", group: "Harbor", run: nav.help },
+      { id: "new-app", label: "Add an app", icon: "plus", group: "Porthaven", run: nav.newApp },
+      { id: "discover", label: "Find projects on this machine", icon: "radar", group: "Porthaven", run: nav.discover },
+      { id: "refresh", label: "Scan now", icon: "refresh", group: "Porthaven", run: () => void api.refresh() },
+      { id: "theme", label: "Toggle light / dark", icon: "sun", group: "Porthaven", run: nav.theme },
+      { id: "settings", label: "Settings", icon: "settings", group: "Porthaven", run: nav.settings },
+      { id: "help", label: "Keyboard shortcuts", icon: "keyboard", group: "Porthaven", run: nav.help },
     );
     return c;
   }, [snap, q, actions, nav]);
@@ -132,12 +132,12 @@ export function SettingsModal({ open, onClose, settings, onTheme, theme }: { ope
             {["dark", "light", "system"].map((t) => <button key={t} onClick={() => onTheme(t)} className={cx("rounded-md px-2.5 py-1 capitalize", theme === t ? "bg-accent-soft text-accent-ink" : "text-muted")}>{t}</button>)}
           </div>
         </Row>
-        <Row label="Scan every" hint="How often Harbor looks for ports while this page is open.">
+        <Row label="Scan every" hint="How often Porthaven looks for ports while this page is open.">
           <select className="rounded-lg border border-line-2 bg-panel-2 px-2 py-1 text-xs" value={settings.scanInterval} onChange={(e) => set({ scanInterval: Number(e.target.value) })}>
             {[1, 2, 3, 5, 10].map((s) => <option key={s} value={s}>{s} s</option>)}
           </select>
         </Row>
-        <Row label="Check HTTP every" hint="Harbor asks each server for its page title and status.">
+        <Row label="Check HTTP every" hint="Porthaven asks each server for its page title and status.">
           <select className="rounded-lg border border-line-2 bg-panel-2 px-2 py-1 text-xs" value={settings.probeInterval} onChange={(e) => set({ probeInterval: Number(e.target.value) })}>
             {[5, 15, 30, 60].map((s) => <option key={s} value={s}>{s} s</option>)}
           </select>
@@ -157,7 +157,7 @@ export function SettingsModal({ open, onClose, settings, onTheme, theme }: { ope
           {perm === "granted" ? <Toggle checked={settings.notify} onChange={(b) => set({ notify: b })} /> :
             <button className="text-xs font-semibold text-accent hover:underline" onClick={() => void Notification.requestPermission().then(setPerm)}>{perm === "denied" ? "Blocked in browser settings" : "Allow notifications"}</button>}
         </Row>
-        <p className="border-t border-line pt-3 text-[11px] text-faint">Saved in ~/.harbor/state.json. Harbor listens on 127.0.0.1 only, and every change needs this page’s session token.</p>
+        <p className="border-t border-line pt-3 text-[11px] text-faint">Saved in ~/.porthaven/state.json. Porthaven listens on 127.0.0.1 only, and every change needs this page’s session token.</p>
       </div>
     </Modal>
   );

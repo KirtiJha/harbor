@@ -1,8 +1,8 @@
-"""Harbor's local web server: the UI, a JSON API and live updates (server-sent events).
+"""Porthaven's local web server: the UI, a JSON API and live updates (server-sent events).
 
 It listens on 127.0.0.1 only. Because a web page on any site can send requests to localhost, every
-request must carry Harbor's own Host header (blocks DNS rebinding) and every change must carry the
-session token that only Harbor's own page can read.
+request must carry Porthaven's own Host header (blocks DNS rebinding) and every change must carry the
+session token that only Porthaven's own page can read.
 """
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ MAX_BODY = 256 * 1024
 
 
 class Api:
-    def __init__(self, harbor, token):
-        self.h = harbor
+    def __init__(self, porthaven, token):
+        self.h = porthaven
         self.token = token
         self.routes = []
         r = self.route
@@ -162,12 +162,12 @@ class Api:
         raise ControlError(f"No API route {method} {path}.", status=404)
 
 
-def make_handler(api, harbor, port):
+def make_handler(api, porthaven, port):
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
     proxy_host = re.compile(rf"^([a-z0-9][a-z0-9-]*)\.localhost:{port}$")
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "Harbor"
+        server_version = "Porthaven"
         protocol_version = "HTTP/1.1"
 
         def log_message(self, fmt, *args):   # quiet: the UI shows activity
@@ -186,10 +186,10 @@ def make_handler(api, harbor, port):
 
         def _guard(self, mutating):
             if self.headers.get("Host") not in allowed_hosts:
-                self._send(403, {"error": "Harbor only answers requests addressed to localhost."})
+                self._send(403, {"error": "Porthaven only answers requests addressed to localhost."})
                 return False
-            if mutating and not secrets.compare_digest(self.headers.get("X-Harbor-Token", ""), api.token):
-                self._send(403, {"error": "Missing or wrong Harbor session token. Reload the Harbor page."})
+            if mutating and not secrets.compare_digest(self.headers.get("X-Porthaven-Token", ""), api.token):
+                self._send(403, {"error": "Missing or wrong Porthaven session token. Reload the Porthaven page."})
                 return False
             return True
 
@@ -230,13 +230,13 @@ def make_handler(api, harbor, port):
             return True
 
         def _proxy(self, slug):
-            """http://<name>.localhost:<harbor port>/ → the app's current port. A raw tunnel, so websockets
+            """http://<name>.localhost:<porthaven port>/ → the app's current port. A raw tunnel, so websockets
             (hot reload) and streaming work too."""
-            target, name = harbor.proxy_target(slug)
+            target, name = porthaven.proxy_target(slug)
             if not target or target == port:
-                page = (f"<!doctype html><meta charset=utf-8><title>{html.escape(slug)} · Harbor</title><body style='font:15px system-ui;"
+                page = (f"<!doctype html><meta charset=utf-8><title>{html.escape(slug)} · Porthaven</title><body style='font:15px system-ui;"
                         f"background:#080b12;color:#d6deeb;padding:48px'><h2>Nothing called “{html.escape(slug)}” is running.</h2>"
-                        f"<p>Start it from <a style='color:#5eead4' href='http://localhost:{port}/'>Harbor</a> and reload this page.</p>")
+                        f"<p>Start it from <a style='color:#5eead4' href='http://localhost:{port}/'>Porthaven</a> and reload this page.</p>")
                 return self._send(502, page.encode(), "text/html; charset=utf-8")
             upstream = None
             for host in ("127.0.0.1", "::1"):
@@ -331,7 +331,7 @@ def make_handler(api, harbor, port):
             data = target.read_bytes()
             ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             if target.name == "index.html" and target.parent == WEB:
-                data = data.replace(b"</head>", f'<meta name="harbor-token" content="{api.token}"></head>'.encode(), 1)
+                data = data.replace(b"</head>", f'<meta name="porthaven-token" content="{api.token}"></head>'.encode(), 1)
                 ctype = "text/html; charset=utf-8"
             self.send_response(200)
             self.send_header("Content-Type", ctype)
@@ -360,15 +360,15 @@ def make_handler(api, harbor, port):
             if not self._guard(False):
                 return
             self._sse_start()
-            harbor.clients += 1
-            harbor.wake.set()
+            porthaven.clients += 1
+            porthaven.wake.set()
             try:
                 seen = -1
                 while True:
-                    with harbor.changed:
-                        if harbor.version == seen:
-                            harbor.changed.wait(15)
-                        version, snap, events = harbor.version, harbor.snapshot, harbor.last_events
+                    with porthaven.changed:
+                        if porthaven.version == seen:
+                            porthaven.changed.wait(15)
+                        version, snap, events = porthaven.version, porthaven.snapshot, porthaven.last_events
                     if version != seen:
                         if seen >= 0 and events:
                             self._sse("events", events)
@@ -380,7 +380,7 @@ def make_handler(api, harbor, port):
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
             finally:
-                harbor.clients -= 1
+                porthaven.clients -= 1
 
         def _log_stream(self, app_id):
             if not self._guard(False):
@@ -389,7 +389,7 @@ def make_handler(api, harbor, port):
             after = int((parse_qs(urlparse(self.path).query).get("after") or ["0"])[0])
             try:
                 while True:
-                    m = harbor.managed.get(app_id)
+                    m = porthaven.managed.get(app_id)
                     if not m:
                         self.wfile.write(b": waiting\n\n")
                         self.wfile.flush()
@@ -407,7 +407,7 @@ def make_handler(api, harbor, port):
                     else:
                         self.wfile.write(b": keep-alive\n\n")
                         self.wfile.flush()
-                    if harbor.managed.get(app_id) is not m:
+                    if porthaven.managed.get(app_id) is not m:
                         after = 0
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
@@ -415,10 +415,10 @@ def make_handler(api, harbor, port):
     return Handler
 
 
-NO_BUILD = """<!doctype html><meta charset=utf-8><title>Harbor</title>
+NO_BUILD = """<!doctype html><meta charset=utf-8><title>Porthaven</title>
 <body style="font:15px system-ui;background:#0b0f17;color:#d6deeb;padding:48px">
-<h1>Harbor is running, but its web UI is not built yet.</h1>
-<p>Run <code>make -C harbor build</code> (or <code>cd harbor/web && npm install && npm run build</code>) and reload.</p>
+<h1>Porthaven is running, but its web UI is not built yet.</h1>
+<p>Run <code>make -C porthaven build</code> (or <code>cd porthaven/web && npm install && npm run build</code>) and reload.</p>
 <p>The API is live: <a style="color:#7dd3fc" href="/api/state">/api/state</a></p>"""
 
 
@@ -426,10 +426,10 @@ class _Server6(ThreadingHTTPServer):
     address_family = socket.AF_INET6
 
 
-def serve(harbor, port, host="127.0.0.1", ready=None):
+def serve(porthaven, port, host="127.0.0.1", ready=None):
     token = secrets.token_urlsafe(24)
-    api = Api(harbor, token)
-    handler = make_handler(api, harbor, port)
+    api = Api(porthaven, token)
+    handler = make_handler(api, porthaven, port)
     httpd = ThreadingHTTPServer((host, port), handler)
     httpd.daemon_threads = True
     # Browsers may try localhost over IPv6 (::1) first; answer there too, still loopback only.
@@ -439,12 +439,12 @@ def serve(harbor, port, host="127.0.0.1", ready=None):
             httpd6 = _Server6(("::1", port), handler)
             httpd6.daemon_threads = True
             threading.Thread(target=httpd6.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True,
-                             name="harbor-http6").start()
+                             name="porthaven-http6").start()
         except OSError:
             httpd6 = None
-    harbor.port = port
+    porthaven.port = port
     # Answer straight away; the first scan of the machine can take a few seconds on a busy or slow machine.
-    threading.Thread(target=harbor.start, daemon=True, name="harbor-first-scan").start()
+    threading.Thread(target=porthaven.start, daemon=True, name="porthaven-first-scan").start()
     if ready:
         threading.Timer(0.3, ready).start()
     try:

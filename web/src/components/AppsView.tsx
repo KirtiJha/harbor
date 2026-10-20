@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { App, Snapshot } from "../api";
 import type { Actions } from "../actions";
-import { useLocal } from "../useHarbor";
+import { useLocal } from "../usePorthaven";
 import { ago, colorFor, cx, shortPath } from "../util";
 import { Icon } from "./Icon";
 import { LogView } from "./LogView";
@@ -10,7 +10,7 @@ import { Badge, Button, Dot, IconButton, Menu } from "./ui";
 const STATE: Record<App["state"], { label: string; tone: "ok" | "warn" | "bad" | "muted" | "info" | "accent"; pulse?: boolean }> = {
   running: { label: "Running", tone: "ok" },
   starting: { label: "Starting", tone: "warn", pulse: true },
-  external: { label: "Running outside Harbor", tone: "info" },
+  external: { label: "Running outside Porthaven", tone: "info" },
   stopped: { label: "Stopped", tone: "muted" },
   exited: { label: "Exited", tone: "muted" },
   crashed: { label: "Crashed", tone: "bad" },
@@ -19,7 +19,7 @@ const STATE: Record<App["state"], { label: string; tone: "ok" | "warn" | "bad" |
 export function AppsView({ snap, actions, selectedId, onSelect, onEdit, onDiscover }: {
   snap: Snapshot; actions: Actions; selectedId: string | null; onSelect: (id: string) => void; onEdit: (a: Partial<App>) => void; onDiscover: () => void;
 }) {
-  const [filter, setFilter] = useLocal<"all" | "running" | "stopped">("harbor.appsFilter", "all");
+  const [filter, setFilter] = useLocal<"all" | "running" | "stopped">("porthaven.appsFilter", "all");
   const apps = useMemo(() => {
     const live = (a: App) => ["running", "starting", "external"].includes(a.state);
     return snap.apps.filter((a) => filter === "all" || (filter === "running" ? live(a) : !live(a)))
@@ -37,7 +37,7 @@ export function AppsView({ snap, actions, selectedId, onSelect, onEdit, onDiscov
       <div className="card flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
         <div className="rounded-2xl bg-accent-soft p-4 text-accent"><Icon name="play" size={28} /></div>
         <h2 className="text-lg font-semibold text-ink">Start your apps from one place</h2>
-        <p className="max-w-md text-sm text-muted">Save the command, folder and port of each project once. Harbor starts it, keeps its output, warns you when the port is taken, and stops the whole thing cleanly.</p>
+        <p className="max-w-md text-sm text-muted">Save the command, folder and port of each project once. Porthaven starts it, keeps its output, warns you when the port is taken, and stops the whole thing cleanly.</p>
         <div className="mt-2 flex gap-2">
           <Button variant="primary" icon="radar" onClick={onDiscover}>Find projects on this machine</Button>
           <Button icon="plus" onClick={() => onEdit({})}>Add an app</Button>
@@ -130,7 +130,7 @@ function AppCard({ a, active, actions, onClick, onEdit, home }: { a: App; active
             { label: "Open in editor", icon: "code", onClick: () => void actions.reveal(a.cwd, "editor") },
             { label: "Open terminal here", icon: "terminal", onClick: () => void actions.reveal(a.cwd, "terminal") },
             "sep",
-            { label: "Remove from Harbor", icon: "trash", danger: true, onClick: () => void actions.deleteApp(a), disabled: live && a.state !== "external" },
+            { label: "Remove from Porthaven", icon: "trash", danger: true, onClick: () => void actions.deleteApp(a), disabled: live && a.state !== "external" },
           ]} trigger={(open) => <IconButton icon="more" title="More" onClick={open} />} />
         </div>
       </div>
@@ -171,7 +171,7 @@ function AppDetail({ a, snap, actions, onEdit }: { a: App; snap: Snapshot; actio
         <div className="space-y-1 border-b border-line bg-warn/5 px-5 py-2 text-xs">
           {a.drift && <p className="text-warn"><Icon name="warn" size={12} className="mr-1 inline" />Running on :{a.ports.join(", :")}, not on its saved port :{a.port}. Something else probably had :{a.port} when it started.</p>}
           {!live && a.conflict && <p className="text-warn"><Icon name="warn" size={12} className="mr-1 inline" />:{a.port} is in use by <b>{a.conflict.title}</b> (pid {a.conflict.pid}). Starting will offer another port or to take it over.</p>}
-          {a.state === "external" && <p className="text-info">Started outside Harbor, so its output is not captured. <button className="font-semibold underline" onClick={() => void actions.restartApp(a)}>Restart it under Harbor</button> to see logs here.</p>}
+          {a.state === "external" && <p className="text-info">Started outside Porthaven, so its output is not captured. <button className="font-semibold underline" onClick={() => void actions.restartApp(a)}>Restart it under Porthaven</button> to see logs here.</p>}
         </div>
       )}
       <div className="flex min-h-0 flex-1 flex-col p-4">

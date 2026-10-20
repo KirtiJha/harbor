@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Listener, Snapshot } from "../api";
 import type { Actions } from "../actions";
-import { useLocal } from "../useHarbor";
+import { useLocal } from "../usePorthaven";
 import { colorFor, cx, duration, health, matches, mb, shortPath, type Health } from "../util";
 import { Icon } from "./Icon";
 import { Badge, Dot, IconButton, Menu, Sparkline, type MenuItem } from "./ui";
@@ -39,10 +39,10 @@ const HEALTH_TONE: Record<Health, "ok" | "warn" | "bad" | "muted" | "info"> = { 
 export function PortsView({ snap, query, actions, selected, onSelect, flash }: {
   snap: Snapshot; query: string; actions: Actions; selected: string | null; onSelect: (id: string | null) => void; flash: Set<string>;
 }) {
-  const [filter, setFilter] = useLocal<Filter>("harbor.filter", "all");
-  const [group, setGroup] = useLocal<Group>("harbor.group", "project");
-  const [dense, setDense] = useLocal("harbor.dense", false);
-  const [collapsed, setCollapsed] = useLocal<string[]>("harbor.collapsed", []);
+  const [filter, setFilter] = useLocal<Filter>("porthaven.filter", "all");
+  const [group, setGroup] = useLocal<Group>("porthaven.group", "project");
+  const [dense, setDense] = useLocal("porthaven.dense", false);
+  const [collapsed, setCollapsed] = useLocal<string[]>("porthaven.collapsed", []);
   const [cursor, setCursor] = useState(0);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -64,9 +64,9 @@ export function PortsView({ snap, query, actions, selected, onSelect, flash }: {
       else if (group === "project") {
         if (l.project) { key = l.project.root; label = l.project.repo && l.project.repo !== l.project.name ? `${l.project.repo} › ${l.project.name}` : l.project.name; sub = shortPath(l.project.root, snap.me.home); }
         else if (l.docker) { key = "~docker"; label = "Docker"; }
-        else { key = `~${l.kind}`; label = { database: "Databases", app: "Desktop apps", system: "System services", service: "Services", tool: "Harbor", dev: "Other dev servers", other: "Other" }[l.kind]; }
+        else { key = `~${l.kind}`; label = { database: "Databases", app: "Desktop apps", system: "System services", service: "Services", tool: "Porthaven", dev: "Other dev servers", other: "Other" }[l.kind]; }
       } else {
-        key = l.kind; label = { dev: "Dev servers", service: "Services", database: "Databases", app: "Desktop apps", system: "System services", tool: "Harbor", other: "Other" }[l.kind];
+        key = l.kind; label = { dev: "Dev servers", service: "Services", database: "Databases", app: "Desktop apps", system: "System services", tool: "Porthaven", other: "Other" }[l.kind];
       }
       if (!m.has(key)) m.set(key, { key, label, sub, items: [] });
       m.get(key)!.items.push(l);
@@ -213,7 +213,7 @@ function Row({ l, idx, active, selected, dense, cpuMax, flash, actions, onClick,
       { label: "Open terminal here", icon: "terminal", onClick: () => void actions.reveal(l.project?.root || l.cwd, "terminal") },
     ] : []),
     ...(!locked && l.cwd && !l.managed ? ["sep" as const, { label: "Save as app", icon: "plus", onClick: () => void actions.saveApp(l) },
-      { label: "Restart (Harbor keeps logs)", icon: "restart", onClick: () => void actions.restart(l) }] : []),
+      { label: "Restart (Porthaven keeps logs)", icon: "restart", onClick: () => void actions.restart(l) }] : []),
     ...(!locked ? ["sep" as const,
       { label: `Stop process ${l.pid}`, icon: "stop", hint: "x", danger: true, onClick: () => void actions.kill(l, "process") },
       ...(l.root ? [{ label: `Stop whole app (${l.root.count})`, icon: "stop", hint: "⇧X", danger: true, onClick: () => void actions.kill(l, "app") }] : []),
@@ -236,7 +236,7 @@ function Row({ l, idx, active, selected, dense, cpuMax, flash, actions, onClick,
           {l.framework && l.framework.label !== l.title && <Badge>{l.framework.label}</Badge>}
           {l.probe?.status && l.probe.status >= 300 && <Badge tone={l.probe.status >= 500 ? "bad" : l.probe.status >= 400 ? "warn" : "info"}>{l.probe.status}</Badge>}
           {l.exposure === "network" && <Badge tone="warn" title={`Listening on ${l.addresses.join(", ")}: other devices on your network can reach it`}><Icon name="network" size={11} />network</Badge>}
-          {l.managed && <Badge tone="accent" title="Started by Harbor; its output is in Apps">harbor</Badge>}
+          {l.managed && <Badge tone="accent" title="Started by Porthaven; its output is in Apps">porthaven</Badge>}
           {l.meta.watched && <Icon name="bell" size={12} className="shrink-0 text-info" />}
           {l.idleFor && <Badge tone="violet" title="No connections and no CPU for this long: probably forgotten"><Icon name="moon" size={11} />idle {duration(l.idleFor)}</Badge>}
           {l.docker && <Badge tone="info"><Icon name="docker" size={11} />{l.docker.image}</Badge>}
@@ -267,7 +267,7 @@ function Row({ l, idx, active, selected, dense, cpuMax, flash, actions, onClick,
       <div className="flex items-center justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
         {web && <IconButton icon="external" title="Open in browser (o)" onClick={() => actions.open(l)} />}
         {!locked ? <IconButton icon="stop" title={l.root ? `Stop (x) · whole app: ⇧X` : "Stop (x)"} danger onClick={() => void actions.kill(l, "process")} /> :
-          <span title={l.risk === "self" ? "This is Harbor" : "Owned by another user"} className="inline-flex h-8 w-8 items-center justify-center text-faint"><Icon name="lock" size={14} /></span>}
+          <span title={l.risk === "self" ? "This is Porthaven" : "Owned by another user"} className="inline-flex h-8 w-8 items-center justify-center text-faint"><Icon name="lock" size={14} /></span>}
         <Menu items={items} trigger={(open) => <IconButton icon="more" title="More" onClick={open} />} />
       </div>
     </div>

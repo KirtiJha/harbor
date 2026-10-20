@@ -72,7 +72,7 @@ def _zombie_reaped(pid):
         return False
 
 
-# ---------------------------------------------------------------- saved apps run by Harbor
+# ---------------------------------------------------------------- saved apps run by Porthaven
 
 def expand_command(command, port):
     return command.replace("{port}", str(port)) if port else command
@@ -85,7 +85,7 @@ def launch_env(app, port):
         if extra not in path.split(os.pathsep):
             path = f"{path}{os.pathsep}{extra}" if path else extra
     env["PATH"] = path
-    env.update({"FORCE_COLOR": "1", "BROWSER": "none", "HARBOR_APP": app["id"]})
+    env.update({"FORCE_COLOR": "1", "BROWSER": "none", "PORTHAVEN_APP": app["id"]})
     for k, v in (app.get("env") or {}).items():
         env[str(k)] = str(v)
     if port:
@@ -95,7 +95,7 @@ def launch_env(app, port):
 
 class Managed:
     """One launch of a saved app. The app writes straight to its log file in its own session, so it keeps
-    running when Harbor stops or restarts; Harbor follows the file and picks the app up again on start."""
+    running when Porthaven stops or restarts; Porthaven follows the file and picks the app up again on start."""
 
     def __init__(self, app, port, log_path, on_exit, run_dir, adopt=None):
         self.app_id = app["id"]
@@ -115,7 +115,7 @@ class Managed:
             self.cwd, self.started_at, self.status = adopt.get("cwd"), adopt["startedAt"], "running"
             size = log_path.stat().st_size if log_path.exists() else 0
             self.offset = max(adopt.get("offset", 0), size - 200_000)
-            self._add(f"Harbor restarted; {self.name} kept running (pid {self.pid})", "harbor")
+            self._add(f"Porthaven restarted; {self.name} kept running (pid {self.pid})", "porthaven")
         else:
             self.port = port
             self.command = expand_command(app["command"], port)
@@ -137,13 +137,13 @@ class Managed:
             finally:
                 out.close()   # the app holds its own copy of the file
             self.pid = self.proc.pid
-            self._add(f"$ {self.command}", "harbor")
+            self._add(f"$ {self.command}", "porthaven")
             self._save_run()
-        threading.Thread(target=self._follow, daemon=True, name=f"harbor-log-{self.app_id}").start()
+        threading.Thread(target=self._follow, daemon=True, name=f"porthaven-log-{self.app_id}").start()
 
     @classmethod
     def adopt_all(cls, store, on_exit):
-        """Apps Harbor started before it last stopped and that are still running."""
+        """Apps Porthaven started before it last stopped and that are still running."""
         run_dir = store.root / "run"
         out = {}
         for f in run_dir.glob("*.json"):
@@ -199,7 +199,7 @@ class Managed:
         self.ended_at = time.time()
         self.status = "stopped" if self.stopping else ("exited" if code in (0, None) else "crashed")
         ended = f"exit code {code}" if code is not None else "it ended"
-        self._add(f"process ended ({ended})" + (" · stopped from Harbor" if self.stopping else ""), "harbor")
+        self._add(f"process ended ({ended})" + (" · stopped from Porthaven" if self.stopping else ""), "porthaven")
         try:
             self.run_file.unlink()
         except OSError:

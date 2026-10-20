@@ -82,7 +82,7 @@ export function LogView({ appId, live }: { appId: string; live: boolean }) {
         className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[11.5px] leading-[1.55] text-slate-300">
         {shown.length === 0 && <p className="py-8 text-center text-slate-600">{lines.length ? "No lines match." : "No output yet. Start the app to see its output here."}</p>}
         {shown.map((l) => (
-          <div key={`${l.seq}-${l.t}`} className={cx("whitespace-pre-wrap break-all", l.stream === "harbor" && "text-teal-300/80", ERR.test(l.text) && l.stream !== "harbor" && "bg-red-500/[0.07]", WARN.test(l.text) && "bg-amber-500/[0.05]")}>
+          <div key={`${l.seq}-${l.t}`} className={cx("whitespace-pre-wrap break-all", l.stream === "porthaven" && "text-teal-300/80", ERR.test(l.text) && l.stream !== "porthaven" && "bg-red-500/[0.07]", WARN.test(l.text) && "bg-amber-500/[0.05]")}>
             {ansi(l.text).map((p, i) => <span key={i} className={p.c}>{linkify(p.t)}</span>)}
           </div>
         ))}

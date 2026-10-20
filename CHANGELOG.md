@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Harbor are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/),
+All notable changes to Porthaven are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
@@ -27,8 +27,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - New landing page design.
 
 ### Fixed
-- Apps started by Harbor keep running when Harbor stops or restarts, and Harbor picks them up again.
-- Harbor answers on IPv6 loopback too, so `localhost` opens in every browser.
+- Apps started by Porthaven keep running when Porthaven stops or restarts, and Porthaven picks them up again.
+- Porthaven answers on IPv6 loopback too, so `localhost` opens in every browser.
 
 ## [1.0.0] - 2026-10-20
 
@@ -40,7 +40,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Project discovery, export and import, command palette, CLI (`ls`, `who`, `kill`, `free`, `open`, `service`).
 - Landing page at `/welcome`.
 
-[Unreleased]: https://github.com/KirtiJha/harbor/compare/v1.1.1...HEAD
-[1.1.1]: https://github.com/KirtiJha/harbor/compare/v1.1.0...v1.1.1
-[1.1.0]: https://github.com/KirtiJha/harbor/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/KirtiJha/harbor/releases/tag/v1.0.0
+[Unreleased]: https://github.com/KirtiJha/porthaven/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/KirtiJha/porthaven/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/KirtiJha/porthaven/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/KirtiJha/porthaven/releases/tag/v1.0.0

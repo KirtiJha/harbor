@@ -64,7 +64,7 @@ export type Discovered = { name: string; script: string; command: string; detail
 
 export type Sample = { ts: number; ports: number; dev: number; memMb: number; cpu: number; conns: number; idle: number; exposed: number; apps: number; byProject: Record<string, number> };
 export type Insights = {
-  range: string; seconds: number; now: number; harborStarted: number; samples: Sample[]; activity: Activity[];
+  range: string; seconds: number; now: number; porthavenStarted: number; samples: Sample[]; activity: Activity[];
   health: Record<string, { n: number; ok: number; avg: number | null; p95: number | null }>;
 };
 
@@ -78,7 +78,7 @@ export class ApiError extends Error {
   }
 }
 
-let token = document.querySelector<HTMLMetaElement>('meta[name="harbor-token"]')?.content || "";
+let token = document.querySelector<HTMLMetaElement>('meta[name="porthaven-token"]')?.content || "";
 
 async function ensureToken() {
   if (token) return token;
@@ -89,13 +89,13 @@ async function ensureToken() {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
-  if (method !== "GET") headers["X-Harbor-Token"] = await ensureToken();
+  if (method !== "GET") headers["X-Porthaven-Token"] = await ensureToken();
   if (body !== undefined) headers["Content-Type"] = "application/json";
   let r: Response;
   try {
     r = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
-    throw new ApiError("Harbor is not reachable. Is it still running?", 0, {});
+    throw new ApiError("Porthaven is not reachable. Is it still running?", 0, {});
   }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new ApiError((data as { error?: string }).error || `${r.status} ${r.statusText}`, r.status, data);

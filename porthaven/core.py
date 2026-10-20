@@ -1,4 +1,4 @@
-"""Harbor's engine: scans the machine on a timer, keeps the live picture, runs saved apps and acts on processes."""
+"""Porthaven's engine: scans the machine on a timer, keeps the live picture, runs saved apps and acts on processes."""
 from __future__ import annotations
 
 import collections
@@ -49,7 +49,7 @@ def realpath(p):
         return p
 
 
-class Harbor:
+class Porthaven:
     def __init__(self, store=None, port=None):
         self.store = store or Store()
         self.port = port
@@ -70,7 +70,7 @@ class Harbor:
         self.managed = {}
         self.clients = 0
         self.wake = threading.Event()
-        self.pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="harbor-probe")
+        self.pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="porthaven-probe")
         self.docker = {}
         self.docker_at = 0.0
         self.scan_ms = None
@@ -92,7 +92,7 @@ class Harbor:
     def start(self):
         self.managed.update(Managed.adopt_all(self.store, self._on_exit))
         self.refresh(initial=True)
-        threading.Thread(target=self._loop, daemon=True, name="harbor-scan").start()
+        threading.Thread(target=self._loop, daemon=True, name="porthaven-scan").start()
 
     def stop(self):
         self._stop.set()
@@ -402,7 +402,7 @@ class Harbor:
 
     def _idle_for(self, port, kind, proc, conns, now, idle_after):
         """Seconds a dev server has gone without a connection and without using CPU, once that passes the
-        idle threshold; None while it is in use. Before Harbor saw a connection, the process start counts."""
+        idle threshold; None while it is in use. Before Porthaven saw a connection, the process start counts."""
         if kind not in ("dev", "other") or conns or (proc.get("cpu") or 0) >= 1 or proc.get("elapsed") is None:
             return None
         since = self.last_active.get(port) or (now - proc["elapsed"])
@@ -410,7 +410,7 @@ class Harbor:
         return round(idle) if idle >= idle_after else None
 
     def app_slugs(self):
-        """Stable names for saved apps: http://<slug>.localhost:<harbor port>/ always reaches the app,
+        """Stable names for saved apps: http://<slug>.localhost:<porthaven port>/ always reaches the app,
         whatever port it is on today."""
         out, used = {}, set()
         for a in self.store.apps():
@@ -497,20 +497,20 @@ class Harbor:
         known = {r["pid"] for r in self.snapshot["listeners"]} | {r["root"]["pid"] for r in self.snapshot["listeners"] if r["root"]}
         known |= {d for k in list(known) for d in classify.descendants(k, procs)}
         if pid not in known:
-            raise ControlError(f"Process {pid} is not one of the listening apps Harbor shows, so Harbor will not stop it.", status=403)
+            raise ControlError(f"Process {pid} is not one of the listening apps Porthaven shows, so Porthaven will not stop it.", status=403)
         row = self._row_for_pid(pid)
         p = procs[pid]
         kind = row["kind"] if row else "dev"
         risk = self.risk(pid, kind, p["uid"])
         if risk == "self":
-            raise ControlError("That is Harbor itself. Stop Harbor from its terminal (Ctrl-C) instead.", status=403)
+            raise ControlError("That is Porthaven itself. Stop Porthaven from its terminal (Ctrl-C) instead.", status=403)
         if risk == "foreign":
-            raise ControlError(f"Process {pid} belongs to another user; stopping it needs sudo, which Harbor never uses.", status=403)
+            raise ControlError(f"Process {pid} belongs to another user; stopping it needs sudo, which Porthaven never uses.", status=403)
         if risk in ("system", "app") and not confirm:
             raise ControlError("This is a desktop app or a system service. Confirm to stop it.", status=409, needsConfirm=risk)
         m = self.managed_for(pid)
         if m:
-            m.stopping = True   # stopped on purpose from Harbor: not a crash
+            m.stopping = True   # stopped on purpose from Porthaven: not a crash
         if m and mode == "app":
             res = m.stop(grace=float(self.store.settings["graceSeconds"]), extra_pids=classify.descendants(m.pid, procs))
             return self._after_kill(res, pid, "app", row)
@@ -570,7 +570,7 @@ class Harbor:
             raise ControlError(f"{app['name']} is already running (pid {current.pid}).", status=409)
         status = self.app_status(app, self.snapshot["listeners"] if self.snapshot else [])
         if status["state"] == "external" and not force:
-            raise ControlError(f"{app['name']} is already running outside Harbor on port {', '.join(map(str, status['ports']))}.",
+            raise ControlError(f"{app['name']} is already running outside Porthaven on port {', '.join(map(str, status['ports']))}.",
                                status=409, external=status["pids"])
         want = port or app.get("port")
         if want and not probe.port_free(int(want)):
@@ -635,7 +635,7 @@ class Harbor:
         root = row["root"] or {"pid": pid, "args": row["args"], "cwd": row["cwd"]}
         cwd = root.get("cwd") or row["cwd"]
         if not cwd:
-            raise ControlError("Harbor could not read that process's folder, so it cannot run it again.")
+            raise ControlError("Porthaven could not read that process's folder, so it cannot run it again.")
         for a in self.store.apps():
             if realpath(a["cwd"]) == realpath(cwd) and a["command"] == root["args"]:
                 return a
@@ -683,7 +683,7 @@ class Harbor:
 
     def reveal(self, path, target):
         if realpath(path) not in self.known_paths() or not os.path.isdir(path):
-            raise ControlError("Harbor only opens folders of apps it shows.", status=403)
+            raise ControlError("Porthaven only opens folders of apps it shows.", status=403)
         code = shutil.which("code") or shutil.which("cursor")
         if system.IS_WINDOWS:
             wt = shutil.which("wt")
@@ -751,7 +751,7 @@ class Harbor:
 
     def export_apps(self):
         keep = ("name", "cwd", "command", "port", "env", "openPath", "group", "color", "autoRestart", "slug")
-        return {"harbor": __version__, "exportedAt": time.time(),
+        return {"porthaven": __version__, "exportedAt": time.time(),
                 "apps": [{k: a[k] for k in keep if k in a} for a in self.store.apps()]}
 
     def import_apps(self, apps):
@@ -780,7 +780,7 @@ class Harbor:
             health[port] = {"n": len(h), "ok": sum(1 for x in h if x[2] and x[2] < 500),
                             "avg": round(sum(ms) / len(ms)) if ms else None,
                             "p95": ms[min(len(ms) - 1, int(len(ms) * 0.95))] if ms else None}
-        return {"range": rng, "seconds": seconds, "now": now, "harborStarted": self.started_at,
+        return {"range": rng, "seconds": seconds, "now": now, "porthavenStarted": self.started_at,
                 "samples": self.metrics.query(seconds, 240, now),
                 "activity": [e for e in self.store.activity() if e["ts"] >= now - seconds],
                 "health": health}

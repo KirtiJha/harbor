@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { App, Listener, Snapshot } from "../api";
 import type { Actions } from "../actions";
-import { useLocal, useNow } from "../useHarbor";
+import { useLocal, useNow } from "../usePorthaven";
 import { colorFor, cx, duration, mb, PALETTE } from "../util";
 import { RANGES, useInsights, type Range } from "./ActivityView";
 import { BarList, Donut, TimeChart } from "./charts";
@@ -11,7 +11,7 @@ import { Badge, Button, Sparkline, Spinner } from "./ui";
 export function InsightsView({ snap, actions, onOpenPort, onEditApp }: {
   snap: Snapshot; actions: Actions; onOpenPort: (l: Listener) => void; onEditApp: (a: App) => void;
 }) {
-  const [range, setRange] = useLocal<Range>("harbor.insightsRange", "24h");
+  const [range, setRange] = useLocal<Range>("porthaven.insightsRange", "24h");
   const { data, loading } = useInsights(range, snap.activity.length);
   const now = useNow(30000);
   const r = RANGES.find((x) => x.id === range)!;
@@ -103,7 +103,7 @@ export function InsightsView({ snap, actions, onOpenPort, onEditApp }: {
     const slow = health.filter(({ h }) => h?.avg && h.avg > 800);
     if (slow.length) out.push({ tone: "info", icon: "bolt", title: `${slow.length} slow server${slow.length > 1 ? "s" : ""}`, body: slow.map(({ l, h }) => `:${l.port} averages ${h!.avg} ms`).join(", ") });
     if (crashes) out.push({ tone: "bad", icon: "warn", title: `${crashes} crash${crashes > 1 ? "es" : ""} in the last ${r.label}`, body: "Open the app in Apps to read its output around the crash, or turn on auto-restart." });
-    if (!snap.listeners.some((l) => l.meta.watched)) out.push({ tone: "ok", icon: "bell", title: "Watch the ports you depend on", body: "Press w on a row and Harbor tells you when it goes down, with a button to start it again." });
+    if (!snap.listeners.some((l) => l.meta.watched)) out.push({ tone: "ok", icon: "bell", title: "Watch the ports you depend on", body: "Press w on a row and Porthaven tells you when it goes down, with a button to start it again." });
     if (!out.length) out.push({ tone: "ok", icon: "check", title: "All clear", body: "No idle, exposed, contested or crashing servers." });
     return out;
   }, [snap, mine, contested, health, crashes, actions, onOpenPort, onEditApp, r.label]);
@@ -146,7 +146,7 @@ export function InsightsView({ snap, actions, onOpenPort, onEditApp }: {
       <div className="grid grid-cols-[1.6fr_1fr] gap-4">
         <section className="card p-4">
           <div className="mb-2 flex items-baseline gap-2"><h3 className="text-sm font-semibold text-ink">Memory by project</h3><span className="text-xs text-muted">stacked, MB</span>
-            {partial && <span className="ml-auto text-[11px] text-faint">history since {new Date(chartStart * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}; fills up as Harbor runs</span>}</div>
+            {partial && <span className="ml-auto text-[11px] text-faint">history since {new Date(chartStart * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}; fills up as Porthaven runs</span>}</div>
           <TimeChart ts={ts} series={memSeries} stacked start={chartStart} end={now} height={220} format={(v) => mb(v)} />
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">{memSeries.map((s) => <span key={s.key} className="flex items-center gap-1.5 text-[11px] text-muted"><span className="h-2 w-2 rounded-sm" style={{ background: s.color }} />{s.label}</span>)}</div>
         </section>
@@ -192,7 +192,7 @@ export function InsightsView({ snap, actions, onOpenPort, onEditApp }: {
       </div>
 
       <section className="card p-4">
-        <div className="mb-3 flex items-baseline gap-2"><h3 className="text-sm font-semibold text-ink">Health</h3><span className="text-xs text-muted">from Harbor's HTTP checks while it has been running</span></div>
+        <div className="mb-3 flex items-baseline gap-2"><h3 className="text-sm font-semibold text-ink">Health</h3><span className="text-xs text-muted">from Porthaven's HTTP checks while it has been running</span></div>
         {health.length === 0 ? <p className="py-4 text-center text-xs text-muted">No HTTP checks yet.</p> : (
           <div className="overflow-hidden rounded-xl border border-line">
             <div className="grid grid-cols-[80px_1.4fr_120px_90px_90px_1fr_80px] gap-3 bg-panel-2/60 px-4 py-2 text-[11px] font-medium uppercase tracking-wide text-faint">

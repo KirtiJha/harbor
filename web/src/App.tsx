@@ -11,23 +11,23 @@ import { Help, Palette, SettingsModal } from "./components/Palette";
 import { PortsView } from "./components/PortsView";
 import { ActivityFeed, CleanUp, PortTools, ScanStatus, Stats, WatchList } from "./components/Side";
 import { IconButton, Kbd, Spinner, useUi } from "./components/ui";
-import { useHarbor, useLocal } from "./useHarbor";
+import { usePorthaven, useLocal } from "./usePorthaven";
 import { cx } from "./util";
 
 type Tab = "ports" | "apps" | "activity" | "insights";
 
 export default function App() {
   const { toast } = useUi();
-  const [tab, setTab] = useLocal<Tab>("harbor.tab", "ports");
+  const [tab, setTab] = useLocal<Tab>("porthaven.tab", "ports");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const [appSel, setAppSel] = useLocal<string | null>("harbor.app", null);
+  const [appSel, setAppSel] = useLocal<string | null>("porthaven.app", null);
   const [editing, setEditing] = useState<Partial<AppT> | null>(null);
   const [discover, setDiscover] = useState(false);
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
   const [settings, setSettings] = useState(false);
-  const [theme, setTheme] = useLocal("harbor.theme", "dark");
+  const [theme, setTheme] = useLocal("porthaven.theme", "dark");
   const [flash, setFlash] = useState<Set<string>>(new Set());
   const search = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<{ notify: boolean }>({ notify: true });
@@ -46,12 +46,12 @@ export default function App() {
       toast(text, e.type === "crashed" || e.type === "closed" ? "bad" : "ok",
         e.type === "ready" && e.port ? { label: "Open", onClick: () => window.open(`http://localhost:${e.port}/`, "_blank", "noopener") } : undefined);
       if (settingsRef.current.notify && typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
-        new Notification("Harbor", { body: text, tag: e.id });
+        new Notification("Porthaven", { body: text, tag: e.id });
       }
     }
   }, [toast]);
 
-  const { snap, conn } = useHarbor(onEvents);
+  const { snap, conn } = usePorthaven(onEvents);
   if (snap) settingsRef.current.notify = snap.settings.notify;
   const actions = useActions(setEditing);
 
@@ -64,7 +64,7 @@ export default function App() {
     if (!snap) return;
     const down = snap.summary.watchedDown.length;
     const running = snap.summary.dev;
-    document.title = `${down ? `⚠ ${down} down · ` : ""}Harbor · ${running} port${running === 1 ? "" : "s"}`;
+    document.title = `${down ? `⚠ ${down} down · ` : ""}Porthaven · ${running} port${running === 1 ? "" : "s"}`;
   }, [snap]);
 
   useEffect(() => {
@@ -104,7 +104,7 @@ export default function App() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-muted">
         <Logo size={40} />
-        <p className="flex items-center gap-2 text-sm">{conn === "lost" ? "Harbor is not reachable. Start it with `python3 -m harbor`." : <><Spinner /> Looking at your ports…</>}</p>
+        <p className="flex items-center gap-2 text-sm">{conn === "lost" ? "Porthaven is not reachable. Start it with `python3 -m porthaven`." : <><Spinner /> Looking at your ports…</>}</p>
       </div>
     );
   }
@@ -115,10 +115,10 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-4 border-b border-line bg-panel/70 px-5 py-2.5 backdrop-blur">
-        <a href="/welcome" title="About Harbor" className="group flex items-center gap-2.5 rounded-lg">
+        <a href="/welcome" title="About Porthaven" className="group flex items-center gap-2.5 rounded-lg">
           <span className="transition group-hover:scale-105"><Logo size={28} /></span>
           <div className="leading-tight">
-            <div className="text-[15px] font-bold tracking-tight text-ink group-hover:text-accent-ink">Harbor</div>
+            <div className="text-[15px] font-bold tracking-tight text-ink group-hover:text-accent-ink">Porthaven</div>
             <div className="text-[10px] text-faint">every port on this machine</div>
           </div>
         </a>
@@ -146,14 +146,14 @@ export default function App() {
           </button>
           <IconButton icon={document.documentElement.classList.contains("dark") ? "sun" : "moon"} title="Light / dark (t)" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} />
           <IconButton icon="keyboard" title="Shortcuts (?)" onClick={() => setHelp(true)} />
-          <a href="/welcome" target="_blank" rel="noopener" title="About Harbor" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-panel-2 hover:text-ink"><Icon name="sparkle" size={16} /></a>
+          <a href="/welcome" target="_blank" rel="noopener" title="About Porthaven" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-panel-2 hover:text-ink"><Icon name="sparkle" size={16} /></a>
           <IconButton icon="settings" title="Settings" onClick={() => setSettings(true)} />
         </div>
       </header>
 
       {(snap.error || conn === "lost") && (
         <div className="flex items-center gap-2 border-b border-bad/30 bg-bad/10 px-5 py-2 text-sm text-bad">
-          <Icon name="warn" size={15} />{conn === "lost" ? "Lost the connection to Harbor. Retrying…" : snap.error}
+          <Icon name="warn" size={15} />{conn === "lost" ? "Lost the connection to Porthaven. Retrying…" : snap.error}
         </div>
       )}
       {snap.summary.watchedDown.length > 0 && (
@@ -190,7 +190,7 @@ export default function App() {
         {tab === "insights" && <InsightsView snap={snap} actions={actions} onOpenPort={openPort} onEditApp={setEditing} />}
       </main>
 
-      <AppEditor app={editing} groups={[...new Set(snap.apps.map((a) => a.group).filter(Boolean) as string[])]} harborPort={snap.me.port} onClose={() => setEditing(null)} onStart={(a) => { setTab("apps"); setAppSel(a.id); void actions.startApp(a); }} />
+      <AppEditor app={editing} groups={[...new Set(snap.apps.map((a) => a.group).filter(Boolean) as string[])]} porthavenPort={snap.me.port} onClose={() => setEditing(null)} onStart={(a) => { setTab("apps"); setAppSel(a.id); void actions.startApp(a); }} />
       <DiscoverModal open={discover} onClose={() => setDiscover(false)} home={snap.me.home} onPick={(a) => { setDiscover(false); setEditing(a); }} />
       <Palette open={palette} onClose={() => setPalette(false)} snap={snap} actions={actions} nav={nav} />
       <Help open={help} onClose={() => setHelp(false)} />
@@ -200,12 +200,5 @@ export default function App() {
 }
 
 function Logo({ size = 28 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <defs><linearGradient id="hg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#2dd4bf" /><stop offset="1" stopColor="#0e7490" /></linearGradient></defs>
-      <rect width="32" height="32" rx="9" fill="url(#hg)" />
-      <path d="M16 8v15M11.5 11.5h9M8.5 17.5c0 4.5 3.4 7 7.5 7s7.5-2.5 7.5-7" fill="none" stroke="#ecfeff" strokeWidth="2.4" strokeLinecap="round" />
-      <circle cx="16" cy="7.5" r="2" fill="none" stroke="#ecfeff" strokeWidth="1.8" />
-    </svg>
-  );
+  return <img src="/porthaven.svg" width={size} height={size} alt="" className="shrink-0 drop-shadow-[0_0_12px_rgba(45,212,191,0.35)]" />;
 }

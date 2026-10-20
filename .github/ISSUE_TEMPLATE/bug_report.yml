@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in Harbor does not work as expected
+description: Something in Porthaven does not work as expected
 labels: [bug]
 body:
   - type: markdown
@@ -31,12 +31,12 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: Output of `harbor --version` and `python3 --version`
+      description: Output of `porthaven --version` and `python3 --version`
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
       label: Output or screenshots
-      description: The terminal output of `harbor`, or a screenshot.
+      description: The terminal output of `porthaven`, or a screenshot.
       render: shell

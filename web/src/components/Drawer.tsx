@@ -145,7 +145,7 @@ export function Drawer({ l, snap, actions, onClose, onOpenApp }: { l: Listener; 
 
       <div className="space-y-2 border-t border-line bg-panel-2/40 px-5 py-3">
         {locked ? (
-          <p className="flex items-center gap-2 text-xs text-muted"><Icon name="lock" size={14} />{l.risk === "self" ? "This is Harbor itself. Stop it with Ctrl-C in its terminal." : "Owned by another user. Harbor never uses sudo."}</p>
+          <p className="flex items-center gap-2 text-xs text-muted"><Icon name="lock" size={14} />{l.risk === "self" ? "This is Porthaven itself. Stop it with Ctrl-C in its terminal." : "Owned by another user. Porthaven never uses sudo."}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             <Button variant="danger" size="sm" icon="stop" onClick={() => void actions.kill(l, "process")}>Stop process</Button>

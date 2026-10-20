@@ -1,4 +1,4 @@
 * text=auto
 *.cmd text eol=crlf
-bin/harbor text eol=lf
+bin/porthaven text eol=lf
 *.sh text eol=lf

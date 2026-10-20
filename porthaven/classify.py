@@ -8,7 +8,7 @@ from pathlib import Path
 
 # (id, label, kind, pattern on the full command line, speaks HTTP)
 FRAMEWORKS = [
-    ("harbor", "Harbor", "tool", r"-m harbor\b|harbor/__main__", True),
+    ("porthaven", "Porthaven", "tool", r"-m porthaven\b|porthaven/__main__", True),
     ("vite", "Vite", "dev", r"\bvite(\.js)?\b", True),
     ("next", "Next.js", "dev", r"\bnext(-server)?\b|next/dist", True),
     ("nuxt", "Nuxt", "dev", r"\bnuxi?\b", True),
@@ -102,7 +102,7 @@ def bundled_executable(args):
 
 
 def kind_of(command, args, uid, my_uid, fw):
-    if fw and fw["id"] == "harbor":
+    if fw and fw["id"] == "porthaven":
         return "tool"
     if command in SYSTEM_COMMANDS or (args or "").startswith(("/System/", "/usr/libexec/", "/usr/sbin/")) or uid == 0:
         return "system"

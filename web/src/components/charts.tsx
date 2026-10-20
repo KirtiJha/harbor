@@ -93,7 +93,7 @@ export function TimeChart({ ts, series, height = 180, stacked = false, start, en
           </g>
         )}
       </svg>
-      {empty && <div className="absolute inset-0 flex items-center justify-center text-xs text-muted">Collecting history: Harbor records a sample every minute.</div>}
+      {empty && <div className="absolute inset-0 flex items-center justify-center text-xs text-muted">Collecting history: Porthaven records a sample every minute.</div>}
       {hover != null && !empty && (
         <Tip x={x(ts[hover])} w={w}>
           <div className="mb-1 text-[11px] text-faint">{new Date(ts[hover] * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}</div>

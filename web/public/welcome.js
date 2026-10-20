@@ -1,4 +1,4 @@
-// Harbor landing page: scroll reveals, the architecture walkthrough, the typing terminal, copy buttons.
+// Porthaven landing page: scroll reveals, the architecture walkthrough, the typing terminal, copy buttons.
 (function () {
   var reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -89,23 +89,23 @@
   // Terminal: types a short session, then starts over.
   var pre = document.getElementById("typer");
   var script = [
-    ["cmd", "harbor ls"],
+    ["cmd", "porthaven ls"],
     ["out", '<span class="dim">  PORT    PID  WHAT            PROJECT          UP  HTTP</span>'],
     ["out", '  <span class="b">5173</span>   6072  Docs site       @acme/docs       1d  <span class="g">200</span>'],
     ["out", '  <span class="b">5174</span>  55958  Shop web        shop            58m  <span class="g">200</span>'],
     ["out", '  <span class="b">8787</span>  55937  Shop API        shop            58m  <span class="g">200</span>'],
     ["out", '  <span class="b">3000</span>  41207  old-prototype   proto            2d  <span class="g">200</span> <span class="y">⚠</span>'],
     ["pause", 900],
-    ["cmd", "harbor who 5174"],
+    ["cmd", "porthaven who 5174"],
     ["out", '<span class="b">5174</span>  Shop web  <span class="dim">(dev, Vite)</span>'],
     ["out", "  folder   ~/shop/frontend"],
     ["out", "  app      pid 55935: make dev (7 processes)"],
     ["out", '  http     <span class="g">200</span> Shop web (7 ms)'],
     ["pause", 900],
-    ["cmd", "harbor kill 3000 --app -y"],
+    ["cmd", "porthaven kill 3000 --app -y"],
     ["out", '<span class="g">Stopped</span> 3 process(es).'],
     ["pause", 700],
-    ["cmd", "harbor free 5173 -n 3"],
+    ["cmd", "porthaven free 5173 -n 3"],
     ["out", "5175 5176 5177"],
     ["pause", 2600],
   ];

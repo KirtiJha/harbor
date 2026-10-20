@@ -28,7 +28,7 @@ def _probe(port, host, timeout, path):
     result = {"port": port, "url": f"http://localhost:{port}{path}", "checkedAt": time.time()}
     conn = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
-        conn.request("GET", path, headers={"User-Agent": "Harbor/1.0 (local port manager)", "Accept": "text/html,*/*"})
+        conn.request("GET", path, headers={"User-Agent": "Porthaven/1.0 (local port manager)", "Accept": "text/html,*/*"})
         resp = conn.getresponse()
         body = resp.read(65536)
         result.update({"ok": True, "status": resp.status, "reason": resp.reason, "server": resp.getheader("Server"),

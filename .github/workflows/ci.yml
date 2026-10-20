@@ -52,9 +52,9 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          python -m harbor --version
-          python -m harbor ls --all
-          python -m harbor free 3000 -n 3
+          python -m porthaven --version
+          python -m porthaven ls --all
+          python -m porthaven free 3000 -n 3
 
   web:
     name: Web UI

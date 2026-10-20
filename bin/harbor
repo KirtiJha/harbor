@@ -1,6 +1,0 @@
-#!/bin/sh
-# Harbor launcher: works from anywhere, including through a symlink in ~/.local/bin.
-SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
-ROOT=$(cd "$(dirname "$SELF")/.." && pwd)
-PY=${HARBOR_PYTHON:-$(command -v python3 || echo /usr/bin/python3)}
-PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" exec "$PY" -m harbor "$@"

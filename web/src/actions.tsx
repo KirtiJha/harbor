@@ -25,7 +25,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
             <p><span className="font-semibold text-ink">{l.title}</span>{l.project && <span className="text-muted"> · {l.project.name}</span>}</p>
             <p className="break-all rounded-lg bg-panel-2 px-3 py-2 font-mono text-xs text-ink-2">{what}</p>
             {whole && <p className="text-xs text-muted">Stops the launcher (pid {l.root!.pid}) and every process under it, so nothing restarts the server.</p>}
-            {sys && <p className="text-xs text-warn">This is {l.risk === "system" ? "a macOS service" : `part of ${l.appBundle || "a desktop app"}`}. Stopping it may break that app until it restarts.</p>}
+            {sys && <p className="text-xs text-warn">This is {l.risk === "system" ? "a system service" : `part of ${l.appBundle || "a desktop app"}`}. Stopping it may break that app until it restarts.</p>}
             <p className="text-xs text-muted">Harbor asks politely first (SIGTERM) and forces it (SIGKILL) only if it is still running after a few seconds.</p>
           </div>
         ),
@@ -201,7 +201,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
             ))}
           </div>
           {mode === "app" && <p className="text-xs text-muted">Each app's launcher and child processes are stopped too.</p>}
-          {sys && <p className="text-xs text-warn">Includes desktop apps or macOS services.</p>}
+          {sys && <p className="text-xs text-warn">Includes desktop apps or system services.</p>}
         </div>,
       });
       if (!ok) return false;

@@ -61,7 +61,7 @@ export const KIND_LABEL: Record<string, string> = {
   dev: "Dev server", service: "Service", database: "Database", app: "Desktop app", system: "System", tool: "Harbor", other: "Other",
 };
 
-const PALETTE = ["#2dd4bf", "#60a5fa", "#a78bfa", "#f472b6", "#fbbf24", "#34d399", "#fb923c", "#22d3ee", "#c084fc", "#f87171"];
+export const PALETTE = ["#2dd4bf", "#60a5fa", "#a78bfa", "#f472b6", "#fbbf24", "#34d399", "#fb923c", "#22d3ee", "#c084fc", "#f87171"];
 
 export function colorFor(key: string) {
   let h = 0;

@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import socket
+import sys
 import subprocess
 import threading
 import time
@@ -17,6 +18,7 @@ from . import __version__
 from . import classify, probe, system
 from .control import ControlError, Managed, signal_and_wait
 from .discover import discover
+from .metrics import RANGES, Metrics
 from .store import Store
 
 SPARK = 60
@@ -28,7 +30,7 @@ def slugify(name):
 
 
 def lan_ip():
-    """This Mac's address on the local network (no packet is sent: UDP connect only picks a route)."""
+    """This machine's address on the local network (no packet is sent: UDP connect only picks a route)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("10.255.255.255", 1))
@@ -51,7 +53,7 @@ class Harbor:
     def __init__(self, store=None, port=None):
         self.store = store or Store()
         self.port = port
-        self.uid = os.getuid()
+        self.uid = system.my_uid()
         self.pid = os.getpid()
         self.started_at = time.time()
         self.lock = threading.RLock()
@@ -78,6 +80,7 @@ class Harbor:
         self.health = collections.defaultdict(lambda: collections.deque(maxlen=40))
         self.last_active = {}
         self.lan_ip = lan_ip()
+        self.metrics = Metrics(self.store.root)
         self.lan_at = time.time()
         self.procs_prev = {}
         self.roots = {}
@@ -87,6 +90,7 @@ class Harbor:
     # ------------------------------------------------------------ scanning
 
     def start(self):
+        self.managed.update(Managed.adopt_all(self.store, self._on_exit))
         self.refresh(initial=True)
         threading.Thread(target=self._loop, daemon=True, name="harbor-scan").start()
 
@@ -94,6 +98,7 @@ class Harbor:
         self._stop.set()
         self.wake.set()
         self.store.save(now=True)
+        self.metrics.save()
 
     def _loop(self):
         while not self._stop.is_set():
@@ -118,6 +123,10 @@ class Harbor:
             self.error = str(err)
             self._publish()
             return
+        for (pid, _port), row in found.items():   # Windows' netstat names neither the program nor its owner
+            if not row["command"] and pid in procs:
+                row["command"] = procs[pid].get("name") or classify.base(procs[pid]["args"])
+                row["uid"] = procs[pid]["uid"]
         my_tree = {a["pid"] for a in classify.ancestors(self.pid, procs)}
         self.self_pids = {self.pid} | my_tree
         roots = {}
@@ -171,6 +180,7 @@ class Harbor:
         if events:
             self.store.add_activity(events)
         self._publish(events)
+        self.metrics.add(self.snapshot)
 
     def _event(self, kind, row, procs):
         meta = self.store.port_meta(row["port"])
@@ -183,8 +193,11 @@ class Harbor:
         title = (meta.get("label") or (m.name if m else None) or (shown["title"] if shown else None)
                  or (self.probes.get(row["port"]) or {}).get("title") or (proj or {}).get("name") or (fw or {}).get("label") or row["command"])
         watched = bool(meta.get("watched"))
+        kind_of = classify.kind_of(row["command"], p.get("args", ""), row["uid"], self.uid, fw)
         return {"id": f"{time.time():.6f}-{row['pid']}-{row['port']}", "ts": time.time(), "type": kind, "port": row["port"],
                 "pid": row["pid"], "title": title, "project": (proj or {}).get("name"),
+                "framework": (fw or {}).get("label"), "kind": kind_of,
+                "ranFor": p.get("elapsed"), "memMb": round(p.get("rss_kb", 0) / 1024, 1) if p else None,
                 "level": "warn" if (kind == "closed" and watched) else "info", "notify": watched}
 
     def _ready_events(self, events, found):
@@ -308,10 +321,11 @@ class Harbor:
             args = p.get("args", row["command"])
             fw = classify.framework(args)
             kind = classify.kind_of(row["command"], args, row["uid"], self.uid, fw)
-            cwd = self.cwd_cache.get(pid, (None, None))[1]
+            # Without a readable working folder (Windows), take the project folder from paths in the command line.
+            cwd = self.cwd_cache.get(pid, (None, None))[1] or classify.dir_from_args(args)
             root = roots.get(pid, pid)
             root_proc = procs.get(root, {})
-            root_cwd = self.cwd_cache.get(root, (None, None))[1] or cwd
+            root_cwd = self.cwd_cache.get(root, (None, None))[1] or classify.dir_from_args(root_proc.get("args")) or cwd
             proj = classify.project(root_cwd if kind in ("dev", "service", "other", "tool") else None) if root_cwd else None
             if kind in ("dev", "service", "other", "tool") and cwd and not proj:
                 proj = classify.project(cwd)
@@ -493,7 +507,7 @@ class Harbor:
         if risk == "foreign":
             raise ControlError(f"Process {pid} belongs to another user; stopping it needs sudo, which Harbor never uses.", status=403)
         if risk in ("system", "app") and not confirm:
-            raise ControlError("This is a desktop app or a macOS service. Confirm to stop it.", status=409, needsConfirm=risk)
+            raise ControlError("This is a desktop app or a system service. Confirm to stop it.", status=409, needsConfirm=risk)
         m = self.managed_for(pid)
         if m:
             m.stopping = True   # stopped on purpose from Harbor: not a crash
@@ -569,9 +583,12 @@ class Harbor:
                     time.sleep(0.1)
             else:
                 alt = probe.free_ports(int(want) + 1, 1)
+                self.store.add_activity([{"id": f"{time.time():.6f}-conflict-{app_id}", "ts": time.time(), "type": "conflict",
+                                          "port": int(want), "title": app["name"], "appId": app_id, "level": "warn",
+                                          "detail": f"held by {holder['title']}" if holder else "port busy"}])
                 raise ControlError(f"Port {want} is in use" + (f" by {holder['title']} (pid {holder['pid']})" if holder else "") + ".",
                                    status=409, conflict={"port": int(want), "holder": holder, "suggest": alt[0] if alt else None})
-        m = Managed(app, int(want) if want else None, self.store.log_path(app_id), self._on_exit)
+        m = Managed(app, int(want) if want else None, self.store.log_path(app_id), self._on_exit, self.store.root / "run")
         self.managed[app_id] = m
         self.store.add_activity([{"id": f"{time.time():.6f}-start-{app_id}", "ts": time.time(), "type": "started", "pid": m.pid,
                                   "port": m.port, "title": app["name"], "appId": app_id, "level": "info"}])
@@ -667,17 +684,22 @@ class Harbor:
     def reveal(self, path, target):
         if realpath(path) not in self.known_paths() or not os.path.isdir(path):
             raise ControlError("Harbor only opens folders of apps it shows.", status=403)
-        mac = shutil.which("open")
-        if target == "editor":
-            code = shutil.which("code") or shutil.which("cursor")
-            cmd = [code, path] if code else ([mac, "-a", "Visual Studio Code", path] if mac else None)
-        elif target == "terminal":
-            cmd = [mac, "-a", "Terminal", path] if mac else ["x-terminal-emulator", "--working-directory", path]
+        code = shutil.which("code") or shutil.which("cursor")
+        if system.IS_WINDOWS:
+            wt = shutil.which("wt")
+            cmd = {"editor": [code, path] if code else None,
+                   "terminal": [wt, "-d", path] if wt else [os.environ.get("COMSPEC", "cmd.exe"), "/c", "start", "cmd", "/K", f'cd /d "{path}"'],
+                   }.get(target, ["explorer", path])
+        elif sys.platform == "darwin":
+            cmd = {"editor": [code, path] if code else ["open", "-a", "Visual Studio Code", path],
+                   "terminal": ["open", "-a", "Terminal", path]}.get(target, ["open", path])
         else:
-            cmd = [mac, path] if mac else ["xdg-open", path]
+            term = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal") or shutil.which("konsole")
+            cmd = {"editor": [code, path] if code else None,
+                   "terminal": [term, "--working-directory", path] if term else None}.get(target, ["xdg-open", path])
         if not cmd or not cmd[0]:
             raise ControlError("No program found to open that folder.")
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **system.spawn_options())
         return {"opened": path, "target": target}
 
     def check_port(self, port):
@@ -746,6 +768,22 @@ class Harbor:
             have.add((realpath(a["cwd"]), a["command"]))
         self._publish()
         return {"added": added, "skipped": skipped}
+
+    def insights(self, rng="24h"):
+        seconds = RANGES.get(rng, 86400)
+        now = time.time()
+        health = {}
+        for port, h in self.health.items():
+            ms = sorted(x[1] for x in h if x[1] is not None and x[2])
+            if not h:
+                continue
+            health[port] = {"n": len(h), "ok": sum(1 for x in h if x[2] and x[2] < 500),
+                            "avg": round(sum(ms) / len(ms)) if ms else None,
+                            "p95": ms[min(len(ms) - 1, int(len(ms) * 0.95))] if ms else None}
+        return {"range": rng, "seconds": seconds, "now": now, "harborStarted": self.started_at,
+                "samples": self.metrics.query(seconds, 240, now),
+                "activity": [e for e in self.store.activity() if e["ts"] >= now - seconds],
+                "health": health}
 
     def shutdown_apps(self):
         for m in self.managed.values():

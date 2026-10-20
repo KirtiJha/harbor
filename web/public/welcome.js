@@ -19,14 +19,49 @@
     });
   });
 
-  // Feature cards: a soft light that follows the pointer.
-  document.querySelectorAll(".feat").forEach(function (c) {
+  // Bento tiles: a spotlight and a gentle 3D tilt that follow the pointer.
+  document.querySelectorAll(".tile").forEach(function (c) {
     c.addEventListener("pointermove", function (e) {
-      var r = c.getBoundingClientRect();
-      c.style.setProperty("--mx", (e.clientX - r.left) + "px");
-      c.style.setProperty("--my", (e.clientY - r.top) + "px");
+      var r = c.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+      c.style.setProperty("--mx", x + "px");
+      c.style.setProperty("--my", y + "px");
+      if (!reduced) {
+        c.style.setProperty("--ry", ((x / r.width - 0.5) * 6).toFixed(2) + "deg");
+        c.style.setProperty("--rx", ((0.5 - y / r.height) * 6).toFixed(2) + "deg");
+      }
     });
+    c.addEventListener("pointerleave", function () { c.style.setProperty("--rx", "0deg"); c.style.setProperty("--ry", "0deg"); });
   });
+
+  // Palette tile: types a port, shows the matches, clears, repeats.
+  var palText = document.getElementById("palType"), pal = palText && palText.closest(".pal");
+  if (palText) {
+    var words = ["5173", "shop", "restart"], w = 0;
+    (function cycle() {
+      var word = words[w++ % words.length], i = 0;
+      pal.classList.remove("show");
+      (function type() {
+        palText.textContent = word.slice(0, i);
+        if (i++ < word.length) return setTimeout(type, 140);
+        pal.classList.add("show");
+        setTimeout(function () { palText.textContent = ""; cycle(); }, 2600);
+      })();
+    })();
+  }
+
+  // Idle tile: counts the memory freed by stopping forgotten servers.
+  var freed = document.getElementById("freed");
+  if (freed) {
+    (function count() {
+      var n = 0, target = 412;
+      (function step() {
+        n = Math.min(target, n + Math.ceil((target - n) / 9));
+        freed.textContent = n;
+        if (n < target) return setTimeout(step, 50);
+        setTimeout(count, 3500);
+      })();
+    })();
+  }
 
   // Architecture: hovering a box or a step lights up both; otherwise the steps play in turn.
   var arch = document.querySelector(".arch");

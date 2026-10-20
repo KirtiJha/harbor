@@ -47,8 +47,11 @@ class Store:
     def _write(self):
         with self.lock:
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.data, indent=1))
-            os.replace(tmp, self.path)
+            try:
+                tmp.write_text(json.dumps(self.data, indent=1))
+                os.replace(tmp, self.path)
+            except FileNotFoundError:   # the state folder was removed (tests, or by hand): nothing to keep
+                pass
 
     # ---------------- settings
     @property
@@ -112,7 +115,7 @@ class Store:
             return len(self.data["apps"]) != before
 
     # ---------------- activity
-    def add_activity(self, events, keep=500):
+    def add_activity(self, events, keep=4000):
         if not events:
             return
         with self.lock:

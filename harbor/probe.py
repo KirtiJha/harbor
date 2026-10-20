@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import os
 import http.client
 import re
 import socket
@@ -61,7 +62,8 @@ def port_free(port, host="127.0.0.1"):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         # Servers set SO_REUSEADDR, so a port whose old connections linger in TIME_WAIT is free to them.
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if os.name != "nt":   # on Windows SO_REUSEADDR would let us bind a port that is in use
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((host, port))
         return True
     except OSError:

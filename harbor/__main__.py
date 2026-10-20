@@ -6,7 +6,7 @@
   harbor kill <port> [--app] [-y]   stop what is on a port (--app: the whole app, e.g. `make dev`)
   harbor free [from] [-n N]  the next free ports
   harbor open <port>         open a port in the browser
-  harbor service install     start Harbor at login (macOS launchd); `uninstall` / `status`
+  harbor service install     start Harbor at login (macOS, Linux, Windows); `uninstall` / `status`
 """
 from __future__ import annotations
 
@@ -143,12 +143,21 @@ PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
 
 
 def cmd_service(args):
-    import plistlib
+    """Start Harbor at login: launchd on macOS, a systemd user service on Linux, a logon task on Windows."""
     import subprocess
     from pathlib import Path
-    if sys.platform != "darwin":
-        print("Start at login is set up with launchd on macOS. On Linux, add `harbor serve --no-open` to a systemd user unit.")
-        return 1
+    root = Path(__file__).resolve().parent.parent
+    logs = Path.home() / ".harbor" / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "darwin":
+        return _service_launchd(args, root, logs, subprocess)
+    if os.name == "nt":
+        return _service_windows(args, root, subprocess)
+    return _service_systemd(args, root, subprocess)
+
+
+def _service_launchd(args, root, logs, subprocess):
+    import plistlib
     domain = f"gui/{os.getuid()}"
     if args.action == "status":
         out = subprocess.run(["launchctl", "print", f"{domain}/{LABEL}"], capture_output=True, text=True)
@@ -161,10 +170,7 @@ def cmd_service(args):
             os.remove(PLIST)
         print("Harbor will no longer start at login.")
         return 0
-    launcher = str(Path(__file__).resolve().parent.parent / "bin" / "harbor")
-    logs = Path.home() / ".harbor" / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
-    plist = {"Label": LABEL, "ProgramArguments": [launcher, "serve", "--no-open", "--port", str(args.port)],
+    plist = {"Label": LABEL, "ProgramArguments": [str(root / "bin" / "harbor"), "serve", "--no-open", "--port", str(args.port)],
              "RunAtLoad": True, "KeepAlive": {"SuccessfulExit": False},
              "EnvironmentVariables": {"PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin")},
              "StandardOutPath": str(logs / "harbor.out.log"), "StandardErrorPath": str(logs / "harbor.err.log")}
@@ -177,6 +183,62 @@ def cmd_service(args):
         print(f"Wrote {PLIST} but launchctl refused it: {out.stderr.strip()}")
         return 2
     print(f"Harbor now starts at login on http://localhost:{args.port}/  (undo: harbor service uninstall)")
+    return 0
+
+
+def _service_systemd(args, root, subprocess):
+    unit = os.path.expanduser("~/.config/systemd/user/harbor.service")
+    ctl = ["systemctl", "--user"]
+    if args.action == "status":
+        out = subprocess.run(ctl + ["is-active", "harbor"], capture_output=True, text=True)
+        print(f"installed: {os.path.exists(unit)}  ({unit})\n{out.stdout.strip() or 'inactive'}")
+        return 0
+    if args.action == "uninstall":
+        subprocess.run(ctl + ["disable", "--now", "harbor"], capture_output=True)
+        if os.path.exists(unit):
+            os.remove(unit)
+        subprocess.run(ctl + ["daemon-reload"], capture_output=True)
+        print("Harbor will no longer start at login.")
+        return 0
+    os.makedirs(os.path.dirname(unit), exist_ok=True)
+    with open(unit, "w") as f:
+        f.write(f"""[Unit]
+Description=Harbor, a dashboard for every local port
+
+[Service]
+ExecStart={root / "bin" / "harbor"} serve --no-open --port {args.port}
+Restart=on-failure
+Environment=PATH={os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")}
+
+[Install]
+WantedBy=default.target
+""")
+    subprocess.run(ctl + ["daemon-reload"], capture_output=True)
+    out = subprocess.run(ctl + ["enable", "--now", "harbor"], capture_output=True, text=True)
+    if out.returncode:
+        print(f"Wrote {unit} but systemctl refused it: {out.stderr.strip()}")
+        return 2
+    print(f"Harbor now starts at login on http://localhost:{args.port}/  (undo: harbor service uninstall)")
+    return 0
+
+
+def _service_windows(args, root, subprocess):
+    task = "Harbor"
+    if args.action == "status":
+        out = subprocess.run(["schtasks", "/Query", "/TN", task], capture_output=True, text=True)
+        print("installed" if out.returncode == 0 else "not installed")
+        return 0
+    if args.action == "uninstall":
+        subprocess.run(["schtasks", "/Delete", "/TN", task, "/F"], capture_output=True)
+        print("Harbor will no longer start at login.")
+        return 0
+    launcher = root / "bin" / "harbor.cmd"
+    out = subprocess.run(["schtasks", "/Create", "/TN", task, "/SC", "ONLOGON", "/RL", "LIMITED", "/F",
+                          "/TR", f'"{launcher}" serve --no-open --port {args.port}'], capture_output=True, text=True)
+    if out.returncode:
+        print(f"Task Scheduler refused it: {(out.stderr or out.stdout).strip()}")
+        return 2
+    print(f"Harbor now starts when you sign in, on http://localhost:{args.port}/  (undo: harbor service uninstall)")
     return 0
 
 
@@ -194,13 +256,14 @@ def cmd_serve(args):
     h = Harbor(Store(), port)
 
     def stop(*_):
-        print("\nStopping Harbor" + (" and the apps it started" if any(m.alive for m in h.managed.values()) else "") + "…")
-        h.shutdown_apps()
+        running = [m.name for m in h.managed.values() if m.alive]
+        print("\nStopping Harbor." + (f" Still running: {', '.join(running)} (Harbor picks them up again next time)." if running else ""))
         h.stop()
         os._exit(0)
 
     signal.signal(signal.SIGINT, stop)
-    signal.signal(signal.SIGTERM, stop)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, stop)
     print(f"{C['b']}Harbor {__version__}{C['x']}  {C['c']}{url}{C['x']}   {C['dim']}(Ctrl-C to stop){C['x']}", flush=True)
     serve(h, port, ready=(lambda: webbrowser.open(url)) if not args.no_open else None)
     return 0
@@ -230,7 +293,7 @@ def main(argv=None):
     s.add_argument("start", type=int, nargs="?", default=3000)
     s.add_argument("-n", type=int, default=5)
     s.set_defaults(fn=cmd_free)
-    s = sub.add_parser("service", help="start Harbor at login (macOS)")
+    s = sub.add_parser("service", help="start Harbor at login (launchd, systemd or Task Scheduler)")
     s.add_argument("action", choices=["install", "uninstall", "status"])
     s.add_argument("--port", type=int, default=DEFAULT_PORT)
     s.set_defaults(fn=cmd_service)

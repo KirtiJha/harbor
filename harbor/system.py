@@ -1,16 +1,25 @@
-"""Reading the machine: listening sockets (lsof), the process table (ps), working directories.
+"""Reading the machine and acting on processes, on macOS, Linux and Windows.
 
-Every parser here is a pure function over command output, so it can be tested without a machine.
+  macOS / Linux   lsof (listening and established sockets, working folders), ps (process table), signals
+  Windows         netstat -ano (sockets), PowerShell Get-CimInstance Win32_Process (process table), taskkill
+
+Every parser is a pure function over command output, so it can be tested on any machine.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
+import signal
 import subprocess
+import time
 
+IS_WINDOWS = os.name == "nt"
 LSOF = shutil.which("lsof") or "/usr/sbin/lsof"
 PS = shutil.which("ps") or "/bin/ps"
+NO_WINDOW = 0x08000000 if IS_WINDOWS else 0          # CREATE_NO_WINDOW: no console flashes for helper commands
+NEW_GROUP = 0x00000200 if IS_WINDOWS else 0          # CREATE_NEW_PROCESS_GROUP
 
 
 class SystemError_(RuntimeError):
@@ -19,9 +28,11 @@ class SystemError_(RuntimeError):
 
 def run(args, timeout=5.0):
     try:
-        out = subprocess.run(args, capture_output=True, text=True, timeout=timeout, errors="replace")
+        out = subprocess.run(args, capture_output=True, text=True, timeout=timeout, errors="replace",
+                             **({"creationflags": NO_WINDOW} if IS_WINDOWS else {}))
     except FileNotFoundError as err:
-        raise SystemError_(f"{args[0]} is not installed: {err}. Harbor needs lsof and ps.") from err
+        need = "netstat and PowerShell" if IS_WINDOWS else "lsof and ps"
+        raise SystemError_(f"{args[0]} is not installed: {err}. Harbor needs {need}.") from err
     except subprocess.TimeoutExpired as err:
         raise SystemError_(f"{' '.join(args[:3])} took longer than {timeout}s.") from err
     # lsof exits 1 when nothing matched; that is an empty answer, not a failure.
@@ -89,6 +100,8 @@ def parse_listeners(text):
 
 
 def listeners():
+    if IS_WINDOWS:
+        return parse_netstat(_netstat())["listen"]
     return parse_listeners(run([LSOF, "-nP", "-iTCP", "-sTCP:LISTEN", "-FpcuLn"]))
 
 
@@ -107,6 +120,9 @@ def parse_established(text, listening_ports):
 def established(listening_ports):
     if not listening_ports:
         return {}
+    if IS_WINDOWS:
+        counts = parse_netstat(_netstat())["established"]
+        return {p: n for p, n in counts.items() if p in set(listening_ports)}
     return parse_established(run([LSOF, "-nP", "-iTCP", "-sTCP:ESTABLISHED", "-Fpn"]), set(listening_ports))
 
 
@@ -147,7 +163,9 @@ def parse_ps(text):
 
 
 def processes():
-    return parse_ps(run([PS, "-axww", "-o", PS_FIELDS]))
+    if IS_WINDOWS:
+        return parse_cim(run(CIM_COMMAND, timeout=15), _CPU_STATE)
+    return parse_ps(run([PS, "-A", "-ww", "-o", PS_FIELDS]))
 
 
 def parse_cwds(text):
@@ -161,7 +179,7 @@ def parse_cwds(text):
 
 def cwds(pids):
     pids = sorted(set(pids))
-    if not pids:
+    if not pids or IS_WINDOWS:   # Windows does not expose another process's working folder without native code
         return {}
     out = {}
     for i in range(0, len(pids), 200):
@@ -171,6 +189,8 @@ def cwds(pids):
 
 
 def is_alive(pid):
+    if IS_WINDOWS:
+        return _win_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -178,3 +198,171 @@ def is_alive(pid):
     except PermissionError:
         return True
     return True
+
+
+# ---------------------------------------------------------------- Windows: sockets and processes
+
+_NETSTAT = {"at": 0.0, "text": ""}
+
+
+def _netstat():
+    # listeners() and established() run in the same scan; one netstat call serves both.
+    if time.monotonic() - _NETSTAT["at"] > 0.8:
+        _NETSTAT["text"] = run(["netstat", "-ano"])
+        _NETSTAT["at"] = time.monotonic()
+    return _NETSTAT["text"]
+
+
+def parse_netstat(text):
+    """`netstat -ano` -> {"listen": {(pid, port): row}, "established": {port: count}}.
+    A listening row has foreign port 0, which also works when Windows prints the state in another language."""
+    listen, est = {}, {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 4 or not parts[0].upper().startswith("TCP"):
+            continue
+        local, foreign, pid = split_address(parts[1]), split_address(parts[2]), parts[-1]
+        if not local or not pid.isdigit():
+            continue
+        host, port = local
+        state = parts[3].upper() if len(parts) >= 5 else ""
+        if foreign and foreign[1] == 0:
+            row = listen.setdefault((int(pid), port), {"pid": int(pid), "port": port, "command": "", "uid": None,
+                                                       "user": os.environ.get("USERNAME", ""), "addresses": []})
+            shown = "*" if host in ("0.0.0.0", "::") else host
+            if shown not in row["addresses"]:
+                row["addresses"].append(shown)
+        elif state == "ESTABLISHED":
+            est[port] = est.get(port, 0) + 1
+    return {"listen": listen, "established": est}
+
+
+CIM_COMMAND = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+               "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,SessionId,Name,CommandLine,"
+               "WorkingSetSize,KernelModeTime,UserModeTime,"
+               "@{n='Created';e={if($_.CreationDate){[int64](($_.CreationDate.ToUniversalTime())-[datetime]'1970-01-01').TotalSeconds}else{0}}}"
+               " | ConvertTo-Json -Compress"]
+_CPU_STATE = {}
+
+
+def parse_cim(text, cpu_state=None, now=None):
+    """PowerShell's Win32_Process JSON -> the same process dicts `parse_ps` returns. CPU % is the change in
+    kernel + user time since the previous scan (100 % = one core), like ps on macOS."""
+    now = now or time.time()
+    try:
+        rows = json.loads(text or "[]")
+    except ValueError:
+        return {}
+    if isinstance(rows, dict):
+        rows = [rows]
+    procs, seen = {}, {}
+    for r in rows:
+        pid = r.get("ProcessId")
+        if pid is None:
+            continue
+        busy = (r.get("KernelModeTime") or 0) + (r.get("UserModeTime") or 0)   # 100 ns units
+        cpu = 0.0
+        if cpu_state is not None:
+            prev = cpu_state.get(pid)
+            if prev and now > prev[1] and busy >= prev[0]:
+                cpu = round((busy - prev[0]) / ((now - prev[1]) * 1e7) * 100, 1)
+            seen[pid] = (busy, now)
+        created = r.get("Created") or 0
+        procs[pid] = {"pid": pid, "ppid": r.get("ParentProcessId") or 0, "pgid": pid, "uid": r.get("SessionId"),
+                      "cpu": cpu, "rss_kb": int((r.get("WorkingSetSize") or 0) // 1024),
+                      "elapsed": int(now - created) if created else None,
+                      "args": (r.get("CommandLine") or r.get("Name") or "").strip(), "name": r.get("Name") or ""}
+    if cpu_state is not None:
+        cpu_state.clear()
+        cpu_state.update(seen)
+    return procs
+
+
+def _win_alive(pid):
+    """os.kill(pid, 0) would end the process on Windows; ask the kernel instead."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = k32.OpenProcess(0x1000, False, pid)            # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() == 5                  # access denied: it exists
+    try:
+        code = wintypes.DWORD()
+        return bool(k32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259   # STILL_ACTIVE
+    finally:
+        k32.CloseHandle(handle)
+
+
+# ---------------------------------------------------------------- identity, launching and stopping
+
+def my_uid():
+    """The owner Harbor compares processes with: the user id on Unix, the login session on Windows."""
+    if IS_WINDOWS:
+        import ctypes
+        sid = ctypes.c_ulong()
+        ctypes.windll.kernel32.ProcessIdToSessionId(os.getpid(), ctypes.byref(sid))
+        return sid.value
+    return os.getuid()
+
+
+def shell_argv(command):
+    if IS_WINDOWS:
+        # A string, not a list: list quoting would escape the command's own quotes in a way cmd.exe misreads.
+        return f'"{os.environ.get("COMSPEC", "cmd.exe")}" /d /s /c "{command}"'
+
+    return [os.environ.get("SHELL") or "/bin/sh", "-c", command]
+
+
+def spawn_options():
+    """Start an app detached from Harbor, so it keeps running when Harbor stops."""
+    if IS_WINDOWS:
+        return {"creationflags": NEW_GROUP | NO_WINDOW}
+    return {"start_new_session": True}
+
+
+def terminate(pid, force=False, tree=False):
+    """Ask a process to stop (SIGTERM / taskkill), or force it (SIGKILL / taskkill /F). Raises
+    ProcessLookupError when it is gone and PermissionError when it belongs to someone else."""
+    if IS_WINDOWS:
+        args = ["taskkill", "/PID", str(pid)] + (["/T"] if tree else []) + (["/F"] if force else [])
+        out = subprocess.run(args, capture_output=True, text=True, creationflags=NO_WINDOW)
+        if out.returncode == 0:
+            return
+        msg = (out.stderr or out.stdout).lower()
+        if "not found" in msg or "128" in msg or not is_alive(pid):
+            raise ProcessLookupError(pid)
+        if "denied" in msg:
+            raise PermissionError(pid)
+        if not force:
+            raise ChildProcessError(msg.strip())   # cannot be asked politely (a console app): force it later
+        return
+    os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
+
+
+def terminate_group(pid, force=False):
+    """The whole process group (Unix) or process tree (Windows) of a launched app."""
+    if IS_WINDOWS:
+        try:
+            terminate(pid, force=force, tree=True)
+        except (ProcessLookupError, PermissionError, ChildProcessError):
+            pass
+        return
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        return
+    if pgid != os.getpgid(0):
+        try:
+            os.killpg(pgid, signal.SIGKILL if force else signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def group_leader(pid):
+    """True when pid still leads its own group, i.e. it is the app Harbor launched and not a reused pid."""
+    if IS_WINDOWS:
+        return is_alive(pid)
+    try:
+        return os.getpgid(pid) == pid
+    except ProcessLookupError:
+        return False

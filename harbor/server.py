@@ -57,6 +57,7 @@ class Api:
         r("POST", r"/api/kill-many", lambda q, b: self.h.kill_many([int(p) for p in b["pids"]][:100], b.get("mode", "process")))
         r("POST", r"/api/groups/(start|stop)", lambda q, b, action: self.h.group_action(str(b["group"]), action))
         r("GET", r"/api/apps/export", lambda q, b: self.h.export_apps())
+        r("GET", r"/api/insights", lambda q, b: self.h.insights(q.get("range", ["24h"])[0]))
         r("POST", r"/api/apps/import", lambda q, b: self.h.import_apps(b["apps"] if isinstance(b.get("apps"), list) else []))
         r("POST", r"/api/activity/clear", self.clear_activity)
 

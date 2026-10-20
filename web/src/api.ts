@@ -37,7 +37,8 @@ export type App = {
 };
 
 export type Activity = {
-  id: string; ts: number; type: "opened" | "closed" | "killed" | "started" | "stopped" | "exited" | "crashed" | "ready";
+  id: string; ts: number; type: "opened" | "closed" | "killed" | "started" | "stopped" | "exited" | "crashed" | "ready" | "conflict";
+  framework?: string | null; kind?: string; ranFor?: number | null; memMb?: number | null;
   port?: number | null; pid?: number; title: string; project?: string | null; level: "info" | "warn" | "error";
   detail?: string; notify?: boolean; appId?: string;
 };
@@ -60,6 +61,12 @@ export type LogLine = { seq: number; t: number | null; text: string; stream: str
 export type ProcNode = { pid: number; ppid: number; args: string; display: string; cpu: number; memMb: number; uptime: number | null; ports: number[]; mine: boolean };
 export type ProcessDetail = { process: ProcNode; ancestors: ProcNode[]; root: ProcNode | null; tree: ProcNode[]; cwd: string | null };
 export type Discovered = { name: string; script: string; command: string; detail: string; port: number | null; type: string; cwd: string; rel: string; saved: boolean };
+
+export type Sample = { ts: number; ports: number; dev: number; memMb: number; cpu: number; conns: number; idle: number; exposed: number; apps: number; byProject: Record<string, number> };
+export type Insights = {
+  range: string; seconds: number; now: number; harborStarted: number; samples: Sample[]; activity: Activity[];
+  health: Record<string, { n: number; ok: number; avg: number | null; p95: number | null }>;
+};
 
 export class ApiError extends Error {
   status: number;
@@ -123,6 +130,7 @@ export const api = {
   group: (group: string, action: "start" | "stop") => request<{ group: string; results: Record<string, string> }>("POST", `/api/groups/${action}`, { group }),
   exportApps: () => request<{ apps: Partial<App>[] }>("GET", "/api/apps/export"),
   importApps: (apps: unknown[]) => request<{ added: string[]; skipped: { app: unknown; why: string }[] }>("POST", "/api/apps/import", { apps }),
+  insights: (range: string) => request<Insights>("GET", `/api/insights?range=${range}`),
   settings: (s: Partial<Settings>) => request<Settings>("PUT", "/api/settings", s),
   clearActivity: () => request<unknown>("POST", "/api/activity/clear", {}),
 };

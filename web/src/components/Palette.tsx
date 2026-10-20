@@ -10,7 +10,7 @@ export type Command = { id: string; label: string; sub?: string; icon: string; g
 
 export function Palette({ open, onClose, snap, actions, nav }: {
   open: boolean; onClose: () => void; snap: Snapshot; actions: Actions;
-  nav: { go: (tab: "ports" | "apps" | "activity") => void; select: (id: string) => void; app: (id: string) => void; newApp: () => void; discover: () => void; theme: () => void; settings: () => void; help: () => void };
+  nav: { go: (tab: "ports" | "apps" | "activity" | "insights") => void; select: (id: string) => void; app: (id: string) => void; newApp: () => void; discover: () => void; theme: () => void; settings: () => void; help: () => void };
 }) {
   const [q, setQ] = useState("");
   const [i, setI] = useState(0);
@@ -44,8 +44,9 @@ export function Palette({ open, onClose, snap, actions, nav }: {
       { id: "nav-ports", label: "Go to Ports", icon: "layers", group: "Go", run: () => nav.go("ports") },
       { id: "nav-apps", label: "Go to Apps", icon: "play", group: "Go", run: () => nav.go("apps") },
       { id: "nav-activity", label: "Go to Activity", icon: "activity", group: "Go", run: () => nav.go("activity") },
+      { id: "nav-insights", label: "Go to Insights", icon: "sparkle", group: "Go", run: () => nav.go("insights") },
       { id: "new-app", label: "Add an app", icon: "plus", group: "Harbor", run: nav.newApp },
-      { id: "discover", label: "Find projects on this Mac", icon: "radar", group: "Harbor", run: nav.discover },
+      { id: "discover", label: "Find projects on this machine", icon: "radar", group: "Harbor", run: nav.discover },
       { id: "refresh", label: "Scan now", icon: "refresh", group: "Harbor", run: () => void api.refresh() },
       { id: "theme", label: "Toggle light / dark", icon: "sun", group: "Harbor", run: nav.theme },
       { id: "settings", label: "Settings", icon: "settings", group: "Harbor", run: nav.settings },
@@ -107,7 +108,7 @@ export function Palette({ open, onClose, snap, actions, nav }: {
 
 export function Help({ open, onClose }: { open: boolean; onClose: () => void }) {
   const rows: [string, string][] = [
-    ["⌘K / Ctrl K", "Command palette"], ["/", "Search ports"], ["1 · 2 · 3", "Ports · Apps · Activity"], ["j / k  or  ↑ / ↓", "Move through ports"],
+    ["⌘K / Ctrl K", "Command palette"], ["/", "Search ports"], ["1 · 2 · 3 · 4", "Ports · Apps · Activity · Insights"], ["j / k  or  ↑ / ↓", "Move through ports"],
     ["Enter", "Details of the port"], ["o", "Open in browser"], ["c", "Copy URL"], ["p", "Pin to top"], ["w", "Watch (notify when it goes down)"],
     ["x", "Stop the process"], ["Space", "Select for bulk stop"], ["⇧X", "Stop the whole app"], ["n", "Add an app"], ["t", "Light / dark"], ["Esc", "Close"], ["?", "This list"],
   ];

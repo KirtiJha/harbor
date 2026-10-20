@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="dark" />
   <meta name="application-name" content="Harbor" />
-  <meta name="description" content="Harbor shows every app listening on a port on your Mac, which project it belongs to and whether it answers, and lets you open, stop, restart or start it in one click." />
-  <title>Harbor · every port on your Mac, in one place</title>
+  <meta name="description" content="Harbor shows every app listening on a port on your machine (macOS, Linux or Windows), which project it belongs to and whether it answers, and lets you open, stop, restart or start it in one click." />
+  <title>Harbor · every port on your machine, in one place</title>
   <link rel="icon" type="image/svg+xml" href="harbor.svg" />
   <link rel="stylesheet" href="welcome.css" />
 </head>
@@ -33,15 +33,15 @@
     <!-- ============================================================ HERO -->
     <section class="hero">
       <div class="hero-copy reveal">
-        <span class="eyebrow"><span class="dot live"></span> Live on this Mac · refreshes every 2 seconds</span>
-        <h1>Every port on your Mac,<br /><span class="grad">in one harbor.</span></h1>
+        <span class="eyebrow"><span class="dot live"></span> macOS · Linux · Windows · refreshes every 2 seconds</span>
+        <h1>Every port on your machine,<br /><span class="grad">in one harbor.</span></h1>
         <p class="lead">Ten dev servers, three databases, a forgotten Vite from Tuesday. Harbor shows what is listening, which project it belongs to and whether it answers. Open it, stop it, restart it or start it again in one click.</p>
         <div class="cta">
           <a class="btn btn-primary" href="/">Open the dashboard</a>
           <a class="btn btn-ghost" href="#how">See how it works</a>
         </div>
         <div class="install"><span class="prompt">$</span> <code>cd harbor &amp;&amp; make run</code> <button class="copy" data-copy="cd harbor && make run" aria-label="Copy">copy</button></div>
-        <p class="tiny">Python standard library + lsof. No account, no cloud, nothing leaves your machine.</p>
+        <p class="tiny">Python standard library and the tools your OS already has. Runs on macOS, Linux and Windows. No account, no cloud, nothing leaves your machine.</p>
       </div>
 
       <div class="hero-visual reveal" aria-label="An animated preview of the Harbor dashboard">
@@ -106,7 +106,7 @@
       </div>
 
       <div class="arch reveal">
-        <svg viewBox="20 50 1080 410" class="arch-svg" role="img" aria-label="Architecture: macOS sockets and processes feed the scanner, classifier and prober; the engine diffs, stores and streams to the browser and CLI; the supervisor runs saved apps; the proxy gives stable names.">
+        <svg viewBox="20 50 1080 410" class="arch-svg" role="img" aria-label="Architecture: operating-system sockets and processes feed the scanner, classifier and prober; the engine diffs, stores and streams to the browser and CLI; the supervisor runs saved apps; the proxy gives stable names.">
           <defs>
             <linearGradient id="edge" x1="0" x2="1"><stop offset="0" stop-color="#2dd4bf" stop-opacity=".15"/><stop offset=".5" stop-color="#2dd4bf" stop-opacity=".7"/><stop offset="1" stop-color="#60a5fa" stop-opacity=".15"/></linearGradient>
             <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -140,7 +140,7 @@
           </g>
 
           <!-- nodes -->
-          <g class="node" data-step="0" transform="translate(30 80)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">macOS</text><text x="80" y="56" class="ns">lsof · sockets</text></g>
+          <g class="node" data-step="0" transform="translate(30 80)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">Sockets</text><text x="80" y="56" class="ns">lsof · netstat</text></g>
           <g class="node" data-step="0" transform="translate(30 195)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">Processes</text><text x="80" y="56" class="ns">ps · tree · cwd</text></g>
           <g class="node" data-step="2" transform="translate(30 310)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">Your servers</text><text x="80" y="56" class="ns">HTTP on each port</text></g>
 
@@ -162,7 +162,7 @@
         </svg>
 
         <ol class="steps">
-          <li data-step="0"><b>Read</b> the machine: every listening TCP socket (<code>lsof</code>) and the whole process table (<code>ps</code>). About 0.2 s.</li>
+          <li data-step="0"><b>Read</b> the machine: every listening TCP socket (<code>lsof</code>, or <code>netstat</code> on Windows) and the whole process table (<code>ps</code>, or PowerShell). About 0.2 s.</li>
           <li data-step="1"><b>Understand</b> each one: its project (package.json, pyproject, git), its framework (Vite, Next, Uvicorn, Postgres…) and the app that launched it.</li>
           <li data-step="2"><b>Ask</b> each server over HTTP for its status, page title and response time, so “node” becomes “Shop web · 200 · 7 ms”.</li>
           <li data-step="3"><b>Decide</b>: what opened or closed, what is idle, what moved off its port, what is exposed to the network, what is safe to stop.</li>
@@ -179,7 +179,7 @@
         <span class="kicker">Stop whole app</span>
         <h2>Stops what started it, not just the process on the port</h2>
         <p>The process on the port is rarely the one you meant. Harbor walks up the process tree through launchers (<code>make</code>, <code>npm</code>, shells running a command, reloaders) and stops at your terminal, editor or agent. It never goes past them.</p>
-        <p>Then it asks politely (SIGTERM), waits a few seconds, and forces only the processes still running (SIGKILL). Desktop apps and macOS services need you to type the port number first, and Harbor never uses sudo.</p>
+        <p>Then it asks politely (SIGTERM), waits a few seconds, and forces only the processes still running (SIGKILL). Desktop apps and system services need you to type the port number first, and Harbor never uses sudo.</p>
       </div>
       <div class="tree reveal" aria-label="An animated process tree being stopped">
         <div class="tn host">zsh <span>your terminal · untouched</span></div>
@@ -213,24 +213,132 @@
       <div class="head reveal">
         <span class="kicker">Features</span>
         <h2>Everything you reach for when localhost gets busy</h2>
+        <p>Each tile below is the feature itself, running. Hover to look closer.</p>
       </div>
-      <div class="grid">
-        <article class="feat reveal"><i>📡</i><h3>Live port map</h3><p>Every listening port, grouped by project, with framework, page title, HTTP status, uptime, connections, and CPU and memory sparklines.</p></article>
-        <article class="feat reveal"><i>🧭</i><h3>Knows the project</h3><p>Reads package.json, pyproject and git to name each port after its project, instead of “node” or “Python”.</p></article>
-        <article class="feat reveal"><i>🛑</i><h3>Stop the right thing</h3><p>Stop a process or the whole app tree, one at a time or several at once, gracefully first and by force only if needed.</p></article>
-        <article class="feat reveal"><i>🚀</i><h3>Saved apps</h3><p>Command, folder and port saved once. Start, stop and restart in one click, with live coloured logs and clickable URLs.</p></article>
-        <article class="feat reveal"><i>🧩</i><h3>Groups</h3><p>Put backend and frontend in a group and start or stop the whole thing with one click.</p></article>
-        <article class="feat reveal"><i>⚔️</i><h3>Conflicts handled first</h3><p>Before starting, Harbor shows who holds the port. Take the next free one (it sets <code>PORT</code> and fills <code>{port}</code>) or take it over.</p></article>
-        <article class="feat reveal"><i>🌙</i><h3>Forgotten servers</h3><p>Dev servers with no connections and no CPU for hours are flagged idle. Stop them all in one click and get the memory back.</p></article>
-        <article class="feat reveal"><i>🔗</i><h3>Stable names</h3><p><code>name.localhost:7475</code> follows an app to whichever port it is on, websockets included.</p></article>
-        <article class="feat reveal"><i>📱</i><h3>Phone testing</h3><p>Network-exposed servers show their Wi-Fi URL. Others are marked local-only, so you know what the café can reach.</p></article>
-        <article class="feat reveal"><i>🔔</i><h3>Watch and notify</h3><p>Watch a port, and Harbor shows a banner, a toast and a desktop notification when it goes down, with a button to start it again.</p></article>
-        <article class="feat reveal"><i>🔍</i><h3>Find projects</h3><p>Scans a folder for npm, pnpm and yarn scripts, Makefile targets, Django, FastAPI, Flask and Streamlit apps, and Compose files, ready to add.</p></article>
-        <article class="feat reveal"><i>⌨️</i><h3>Keyboard first</h3><p>⌘K palette (type a port number to jump to it), / to search, j/k to move, o to open, x to stop, p to pin, space to select.</p></article>
-        <article class="feat reveal"><i>🐳</i><h3>Docker aware</h3><p>Published container ports show the container name and image, with a <code>docker stop</code> button.</p></article>
-        <article class="feat reveal"><i>🕰</i><h3>History</h3><p>An activity timeline, a per-port history, response-time sparklines and an uptime count for every server.</p></article>
-        <article class="feat reveal"><i>📦</i><h3>Share setups</h3><p>Export your apps to JSON, and import a teammate's to get the same one-click setup.</p></article>
-        <article class="feat reveal"><i>🖥</i><h3>Starts with your Mac</h3><p><code>harbor service install</code> runs it at login through launchd. <code>uninstall</code> removes it.</p></article>
+
+      <div class="bento">
+        <!-- live port map -->
+        <article class="tile t-map reveal">
+          <div class="viz">
+            <div class="mini-head"><span class="dot live"></span> 6 ports · 3 projects <span class="mini-scan">scan 190 ms</span></div>
+            <div class="mrow"><i class="dot ok"></i><b>3000</b><span>Storefront</span><em>Next.js</em><s class="sp"></s></div>
+            <div class="mrow"><i class="dot ok"></i><b>5173</b><span>Docs site</span><em>Vite</em><s class="sp sp2"></s></div>
+            <div class="mrow new"><i class="dot ok"></i><b>5174</b><span>Shop web</span><em>Vite</em><s class="sp sp3"></s><u>new</u></div>
+            <div class="mrow"><i class="dot ok"></i><b>8000</b><span>Shop API</span><em>Uvicorn</em><s class="sp"></s></div>
+            <div class="mrow"><i class="dot warn"></i><b>4700</b><span>Agent server</span><em class="w">network</em><s class="sp sp2"></s></div>
+            <div class="mrow"><i class="dot muted"></i><b>5432</b><span>PostgreSQL</span><em>DB</em><s class="sp sp4"></s></div>
+          </div>
+          <div class="cap"><h3>A live map of every port</h3><p>Project, framework, page title, HTTP status, CPU and memory for each port, refreshed every two seconds.</p></div>
+        </article>
+
+        <!-- stable names -->
+        <article class="tile t-names reveal">
+          <div class="viz">
+            <div class="odo-url"><span class="dot ok"></span>http://<b>shop</b>.localhost:7475 <span class="arrow">→</span> <span class="odo"><span class="odo-col"><span>:5173</span><span>:5174</span><span>:5175</span><span>:5173</span></span></span></div>
+            <p class="odo-note">The port changes; the address doesn't.</p>
+          </div>
+          <div class="cap"><h3>Stable names</h3><p>Bookmarks that follow your app to whatever port it is on today, with hot reload and websockets included.</p></div>
+        </article>
+
+        <!-- stop whole app -->
+        <article class="tile t-tree reveal">
+          <div class="viz">
+            <div class="mtree">
+              <span class="mt keep">zsh</span>
+              <span class="mt root">make dev</span>
+              <span class="mt c1">npm run dev</span>
+              <span class="mt c2">vite :5173</span>
+              <span class="mt c1">uvicorn :8000</span>
+            </div>
+          </div>
+          <div class="cap"><h3>Stop the whole app</h3><p>Harbor stops the launcher and everything under it, and leaves your terminal alone.</p></div>
+        </article>
+
+        <!-- conflicts -->
+        <article class="tile t-conflict reveal">
+          <div class="viz">
+            <div class="clash"><span class="chip a">:5173 <small>Docs site</small></span><span class="bolt">⚡</span><span class="chip b">:5173 <small>Shop web</small></span></div>
+            <div class="resolve"><span class="dot ok"></span> Started on <b>:5175</b> instead</div>
+          </div>
+          <div class="cap"><h3>Conflicts handled first</h3><p>See who holds the port, then take the next free one or take the port over.</p></div>
+        </article>
+
+        <!-- timeline -->
+        <article class="tile t-time reveal">
+          <div class="viz">
+            <div class="lanes">
+              <div class="ln"><b>:3000</b><span class="trk"><i class="bar b1"></i></span></div>
+              <div class="ln"><b>:5173</b><span class="trk"><i class="bar b2"></i><i class="dia d1"></i></span></div>
+              <div class="ln"><b>:5174</b><span class="trk"><i class="bar b3"></i><i class="dia d2"></i><i class="bar b4"></i></span></div>
+              <div class="ln"><b>:8000</b><span class="trk"><i class="bar b5"></i><i class="dia d3"></i></span></div>
+              <div class="now"></div>
+            </div>
+          </div>
+          <div class="cap"><h3>Activity timeline</h3><p>When each port was up, and every launch, crash and conflict along the way.</p></div>
+        </article>
+
+        <!-- command palette -->
+        <article class="tile t-palette reveal">
+          <div class="viz">
+            <div class="pal">
+              <div class="pal-in"><span class="k">⌘K</span><span id="palType"></span><i class="caret"></i></div>
+              <div class="pal-res"><span class="pr on">Open localhost:5173 <small>Docs site</small></span><span class="pr">Stop what is on :5173</span><span class="pr">Restart Shop web</span></div>
+            </div>
+          </div>
+          <div class="cap"><h3>Keyboard first</h3><p>Type a port number to jump to it. Every action has a key.</p></div>
+        </article>
+
+        <!-- idle -->
+        <article class="tile t-idle reveal">
+          <div class="viz">
+            <div class="moon"></div>
+            <div class="freed"><span class="tnum" id="freed">0</span> MB freed</div>
+            <div class="zz"><span>z</span><span>z</span><span>z</span></div>
+          </div>
+          <div class="cap"><h3>Forgotten servers</h3><p>Servers nobody has used for hours are flagged. Stop them all and get the memory back.</p></div>
+        </article>
+
+        <!-- insights -->
+        <article class="tile t-insights reveal">
+          <div class="viz">
+            <svg viewBox="0 0 300 110" class="area" preserveAspectRatio="none" aria-hidden="true">
+              <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2dd4bf" stop-opacity=".45"/><stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/></linearGradient>
+              <linearGradient id="ag2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a78bfa" stop-opacity=".45"/><stop offset="1" stop-color="#a78bfa" stop-opacity="0"/></linearGradient></defs>
+              <path class="fill f2" d="M0 90 C30 80 50 85 80 70 S130 60 160 66 S210 40 240 46 S280 30 300 34 L300 110 L0 110Z" fill="url(#ag2)"/>
+              <path class="line l2" d="M0 90 C30 80 50 85 80 70 S130 60 160 66 S210 40 240 46 S280 30 300 34" />
+              <path class="fill" d="M0 100 C40 96 60 70 100 74 S150 90 180 60 S230 50 260 28 S290 22 300 18 L300 110 L0 110Z" fill="url(#ag)"/>
+              <path class="line" d="M0 100 C40 96 60 70 100 74 S150 90 180 60 S230 50 260 28 S290 22 300 18" />
+            </svg>
+            <div class="ring"><svg viewBox="0 0 42 42"><circle cx="21" cy="21" r="15.9" class="r0"/><circle cx="21" cy="21" r="15.9" class="r1"/><circle cx="21" cy="21" r="15.9" class="r2"/><circle cx="21" cy="21" r="15.9" class="r3"/></svg><b>440<small>MB</small></b></div>
+          </div>
+          <div class="cap"><h3>Insights</h3><p>A week of history: memory by project, health and response times, the busiest hours, and suggested fixes.</p></div>
+        </article>
+
+        <!-- watch -->
+        <article class="tile t-watch reveal">
+          <div class="viz">
+            <div class="bell">🔔</div>
+            <div class="notif"><span class="dot bad"></span><div><b>:8000 Shop API went down</b><small>2 seconds ago · <u>Start it</u></small></div></div>
+          </div>
+          <div class="cap"><h3>Watch and notify</h3><p>Pick the ports you depend on, and Harbor shows a banner and a desktop notification when one goes down.</p></div>
+        </article>
+
+        <!-- survives -->
+        <article class="tile t-survive reveal">
+          <div class="viz">
+            <div class="sv"><span class="hb">Harbor</span><span class="app">Shop web <i class="dot ok"></i></span></div>
+          </div>
+          <div class="cap"><h3>Outlives restarts</h3><p>Apps keep running when Harbor restarts, and it picks them up again with their logs.</p></div>
+        </article>
+      </div>
+
+      <div class="ribbon reveal" aria-label="More features">
+        <div class="ribbon-track">
+          <span>🐳 Docker-aware</span><span>🔍 Finds your projects</span><span>🧩 Groups</span><span>📦 Export &amp; import</span><span>📱 Wi-Fi URLs for phones</span>
+          <span>🪟 macOS · Linux · Windows</span><span>🌓 Light &amp; dark</span><span>🖥 Starts at login</span><span>🪶 Zero dependencies</span><span>🔒 Token-protected API</span><span>📜 Live, coloured logs</span><span>♻️ Auto-restart on crash</span><span>🏷 Notes &amp; names per port</span>
+          <span aria-hidden="true">🐳 Docker-aware</span><span aria-hidden="true">🔍 Finds your projects</span><span aria-hidden="true">🧩 Groups</span><span aria-hidden="true">📦 Export &amp; import</span><span aria-hidden="true">📱 Wi-Fi URLs for phones</span>
+          <span aria-hidden="true">🪟 macOS · Linux · Windows</span><span aria-hidden="true">🌓 Light &amp; dark</span><span aria-hidden="true">🖥 Starts at login</span><span aria-hidden="true">🪶 Zero dependencies</span><span aria-hidden="true">🔒 Token-protected API</span><span aria-hidden="true">📜 Live, coloured logs</span><span aria-hidden="true">♻️ Auto-restart on crash</span><span aria-hidden="true">🏷 Notes &amp; names per port</span>
+        </div>
       </div>
     </section>
 
@@ -264,7 +372,7 @@
         <div class="safe reveal"><b>127.0.0.1 only</b><p>Harbor never listens on your network.</p></div>
         <div class="safe reveal"><b>No DNS rebinding</b><p>It answers only requests addressed to its own localhost port.</p></div>
         <div class="safe reveal"><b>Session token</b><p>Every change needs a token only Harbor's own page can read, so other sites can't send it commands.</p></div>
-        <div class="safe reveal"><b>Guard rails</b><p>It can't stop itself, other users' processes, or anything outside what it shows. Desktop apps and macOS services need you to type the port number.</p></div>
+        <div class="safe reveal"><b>Guard rails</b><p>It can't stop itself, other users' processes, or anything outside what it shows. Desktop apps and system services need you to type the port number.</p></div>
         <div class="safe reveal"><b>No sudo, no cloud</b><p>Your user's processes only. State stays in <code>~/.harbor</code>.</p></div>
         <div class="safe reveal"><b>Zero dependencies</b><p>The backend is the Python standard library, so there's nothing to install or audit.</p></div>
       </div>
@@ -276,7 +384,7 @@
       <div class="steps3">
         <div><span>1</span><code>cd harbor &amp;&amp; make run</code><p>Builds the UI once and opens the dashboard.</p></div>
         <div><span>2</span><code>make install</code><p>Puts <code>harbor</code> on your PATH.</p></div>
-        <div><span>3</span><code>harbor service install</code><p>Optional: start with your Mac.</p></div>
+        <div><span>3</span><code>harbor service install</code><p>Optional: start when you sign in.</p></div>
       </div>
       <a class="btn btn-primary" href="/">Open the dashboard →</a>
     </section>

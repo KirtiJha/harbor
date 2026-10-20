@@ -115,6 +115,7 @@ const EV: Record<Activity["type"], { icon: string; tone: string; verb: string }>
   stopped: { icon: "stop", tone: "text-muted", verb: "stopped" },
   exited: { icon: "stop", tone: "text-muted", verb: "exited" },
   crashed: { icon: "warn", tone: "text-bad", verb: "crashed" },
+  conflict: { icon: "warn", tone: "text-warn", verb: "could not get" },
 };
 
 export function ActivityFeed({ items, compact, onClear }: { items: Activity[]; compact?: boolean; onClear?: () => void }) {

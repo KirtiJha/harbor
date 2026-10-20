@@ -44,19 +44,24 @@ FRAMEWORKS = [
     ("elastic", "Elasticsearch", "database", r"elasticsearch|opensearch", True),
     ("docker", "Docker", "service", r"com\.docker|vpnkit|docker-proxy|\bdockerd\b|OrbStack", True),
     ("inspector", "Node inspector", "dev", r"--inspect", True),
-    ("deno", "Deno", "dev", r"(^|/)deno\b", True),
-    ("bun", "Bun", "dev", r"(^|/)bun\b", True),
-    ("node", "Node.js", "dev", r"(^|/)node\b", True),
-    ("python", "Python", "dev", r"(^|/)[Pp]ython(3(\.\d+)?)?\b", True),
-    ("ruby", "Ruby", "dev", r"(^|/)ruby\b", True),
-    ("java", "Java", "dev", r"(^|/)java\b", True),
+    ("deno", "Deno", "dev", r"(^|[\\/])deno\b", True),
+    ("bun", "Bun", "dev", r"(^|[\\/])bun\b", True),
+    ("node", "Node.js", "dev", r"(^|[\\/])node\b", True),
+    ("python", "Python", "dev", r"(^|[\\/])[Pp]ython(3(\.\d+)?)?\b", True),
+    ("ruby", "Ruby", "dev", r"(^|[\\/])ruby\b", True),
+    ("java", "Java", "dev", r"(^|[\\/])java\b", True),
     ("go", "Go", "dev", r"go-build|/exe/", True),
 ]
 _COMPILED = [(i, l, k, re.compile(p), h) for i, l, k, p, h in FRAMEWORKS]
 
 # Commands that are part of the operating system or a desktop app, not something a developer started.
 SYSTEM_COMMANDS = {"rapportd", "ControlCenter", "ControlCe", "sharingd", "identityservicesd", "launchd", "mDNSResponder",
-                   "AirPlayXPCHelper", "WiFiAgent", "remoted", "cupsd", "netbiosd", "stable"}
+                   "AirPlayXPCHelper", "WiFiAgent", "remoted", "cupsd", "netbiosd", "stable",
+                   # Windows
+                   "System", "svchost.exe", "lsass.exe", "services.exe", "wininit.exe", "spoolsv.exe", "System Idle Process",
+                   "Registry", "smss.exe", "csrss.exe", "winlogon.exe", "MsMpEng.exe", "SearchIndexer.exe"}
+WIN_APPS = re.compile(r"\\(?:Program Files(?: \(x86\))?|AppData\\Local\\Programs)\\([^\\]+)\\", re.I)
+RUNTIMES = re.compile(r"(?:^|[\\/])(node|python\d*|pythonw|java|ruby|deno|bun|php|dotnet|go|docker\w*|postgres|mysqld|redis-server|mongod)(\.exe)?$", re.I)
 APP_BUNDLE = re.compile(r"/([^/]+)\.app/")
 
 PORT_HINTS = {
@@ -76,21 +81,24 @@ def framework(args):
 
 
 def app_bundle(args):
-    m = APP_BUNDLE.search(args or "")
+    m = APP_BUNDLE.search(args or "") or (WIN_APPS.search(first_token(args)) if not RUNTIMES.search(first_token(args)) else None)
     if not m:
         return None
     name = m.group(1)
-    return {"Code Helper": "VS Code", "Code": "VS Code", "Electron": "Electron app"}.get(name, name)
+    return {"Code Helper": "VS Code", "Code": "VS Code", "Microsoft VS Code": "VS Code", "Electron": "Electron app"}.get(name, name)
 
 
 INTERPRETER_BUNDLES = {"Python", "Python3"}
 
 
 def bundled_executable(args):
-    """True when the program itself lives inside a desktop app bundle (VS Code helpers, OneDrive, Box)."""
-    first = (args or "").split(" .", 1)[0].split(" -", 1)[0]
-    m = APP_BUNDLE.search(first)
-    return bool(m and m.group(1) not in INTERPRETER_BUNDLES)
+    """True when the program itself lives inside a desktop app (a macOS .app bundle, or Program Files /
+    AppData\\Local\\Programs on Windows), not a language runtime installed there."""
+    if RUNTIMES.search(first_token(args)):
+        return False
+    program = (args or "").split(" .", 1)[0].split(" -", 1)[0]   # unquoted paths may contain spaces
+    m = APP_BUNDLE.search(program)
+    return bool((m and m.group(1) not in INTERPRETER_BUNDLES) or WIN_APPS.search(program))
 
 
 def kind_of(command, args, uid, my_uid, fw):
@@ -163,24 +171,36 @@ def project(cwd):
 
 # ---------------------------------------------------------------- the app a process belongs to
 
-SHELLS = {"sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh"}
-RUNNERS = re.compile(r"(^|/)(make|gmake|npm|npx|pnpm|yarn|bun|turbo|concurrently|nodemon|honcho|foreman|overmind|"
+SHELLS = {"sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "cmd", "powershell", "pwsh"}
+RUNNERS = re.compile(r"(^|[\\/])(make|gmake|npm|npx|pnpm|yarn|bun|turbo|concurrently|nodemon|honcho|foreman|overmind|"
                      r"docker-compose|cargo|poetry|uv|pipenv|just|task|watchfiles|tsx|ts-node|air|reflex)\b|"
                      r"\b(npm-cli\.js|npx-cli\.js|pnpm\.c?js|yarn\.c?js|concurrently|nodemon|turbo|vite|next|"
                      r"uvicorn|watchfiles|flask|manage\.py|honcho|multiprocessing\.spawn|run-p|run-s|npm-run-all)\b")
 
 
+def first_token(args):
+    """The program part of a command line, keeping "C:\\Program Files\\..." quoted paths whole."""
+    s = (args or "").strip()
+    if s.startswith('"'):
+        end = s.find('"', 1)
+        return s[1:end] if end > 0 else s[1:]
+    return s.split(" ", 1)[0]
+
+
 def base(args):
-    first = (args or "").split(" ", 1)[0]
-    return os.path.basename(first).lstrip("-")
+    name = re.split(r"[\\/]", first_token(args))[-1].lstrip("-")
+    return name[:-4] if name.lower().endswith(".exe") else name
+
+
+RUNS_COMMAND = re.compile(r"(?:^|\s)(?:-c|/c|/k|-Command|-File)(?:\s|$)", re.I)
 
 
 def is_shell_command(args):
-    return base(args) in SHELLS and " -c " in f" {args} "
+    return base(args).lower() in SHELLS and bool(RUNS_COMMAND.search(f" {args} "))
 
 
 def is_interactive_shell(args):
-    return base(args) in SHELLS and " -c " not in f" {args} "
+    return base(args).lower() in SHELLS and not RUNS_COMMAND.search(f" {args} ")
 
 
 def app_root(pid, procs, my_uid, stop_pids=()):
@@ -235,8 +255,27 @@ def ancestors(pid, procs):
 def display_command(args, limit=None):
     """A short, readable command: node_modules/.bin paths and interpreter paths trimmed."""
     s = args or ""
-    s = re.sub(r"\S*/node_modules/\.bin/(\.\./)?", "", s)
-    s = re.sub(r"\S*/node_modules/(\S+?)/bin/", r"\1 ", s)
-    s = re.sub(r"^\S*/(Python|python3?(\.\d+)?|node|ruby|java)\b", r"\1", s)
+    s = re.sub(r'^"([^"]+)"', lambda m: m.group(1).replace(" ", "\ue000"), s)   # keep a quoted program path whole
+    s = re.sub(r"\S*[\\/]node_modules[\\/]\.bin[\\/](\.\.[\\/])?", "", s)
+    s = re.sub(r"\S*[\\/]node_modules[\\/](\S+?)[\\/]bin[\\/]", r"\1 ", s)
+    s = re.sub(r"^\S*[\\/](Python|python3?(\.\d+)?|pythonw?|node|ruby|java)(\.exe)?\b", r"\1", s, flags=re.I)
+    s = s.replace("\ue000", " ")
     s = re.sub(r"^(Python|python3?(\.\d+)?) (\S*/)?\.?venv/bin/", "", s)
     return s if not limit or len(s) <= limit else s[:limit - 1] + "…"
+
+
+PATH_TOKEN = re.compile(r'"([A-Za-z]:\\[^"]+|/[^"]+)"|([A-Za-z]:\\\S+|/\S+)')
+
+
+def dir_from_args(args):
+    """A project folder guessed from paths in a command line, for when the working folder can't be read
+    (Windows): the folder above node_modules, or the folder of a script."""
+    for m in PATH_TOKEN.finditer(args or ""):
+        path = m.group(1) or m.group(2)
+        sep = "\\" if "\\" in path else "/"
+        marker = f"{sep}node_modules{sep}"
+        if marker in path:
+            return path.split(marker, 1)[0]
+        if re.search(r"\.(py|js|mjs|cjs|ts)$", path, re.I) and not re.search(r"[\\/](lib|Lib|site-packages|Program Files)[\\/]", path):
+            return os.path.dirname(path)
+    return None

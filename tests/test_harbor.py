@@ -69,6 +69,62 @@ class Parsing(unittest.TestCase):
         self.assertEqual(system.parse_established(text, {5173}), {5173: 1})
 
 
+NETSTAT = """
+Active Connections
+
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1012
+  TCP    127.0.0.1:5173         0.0.0.0:0              LISTENING       6072
+  TCP    127.0.0.1:5173         127.0.0.1:51000        ESTABLISHED     6072
+  TCP    127.0.0.1:51000        127.0.0.1:5173         ESTABLISHED     9000
+  TCP    [::1]:5173             [::]:0                 LISTENING       6072
+  TCP    [::]:445               [::]:0                 ABHÖREN         4
+  UDP    0.0.0.0:5353           *:*                                    2200
+"""
+
+CIM = json.dumps([
+    {"ProcessId": 6072, "ParentProcessId": 5000, "SessionId": 1, "Name": "node.exe",
+     "CommandLine": '"C:\\Program Files\\nodejs\\node.exe" C:\\dev\\shop\\node_modules\\vite\\bin\\vite.js',
+     "WorkingSetSize": 104857600, "KernelModeTime": 10_000_000, "UserModeTime": 10_000_000, "Created": 1_000},
+    {"ProcessId": 1012, "ParentProcessId": 4, "SessionId": 0, "Name": "svchost.exe", "CommandLine": None,
+     "WorkingSetSize": 2048, "KernelModeTime": 0, "UserModeTime": 0, "Created": 0},
+])
+
+
+class Windows(unittest.TestCase):
+    """The Windows backend's parsers, on sample output, so they are tested on every OS."""
+
+    def test_netstat_listeners_and_connections(self):
+        out = system.parse_netstat(NETSTAT)
+        self.assertEqual(out["listen"][(6072, 5173)]["addresses"], ["127.0.0.1", "::1"])
+        self.assertEqual(out["listen"][(1012, 135)]["addresses"], ["*"])
+        self.assertIn((4, 445), out["listen"], "a localised state name must still count as listening")
+        self.assertEqual(out["established"], {5173: 1, 51000: 1})
+        self.assertNotIn(5353, [p for (_, p) in out["listen"]], "UDP is not a listener")
+
+    def test_process_table_and_cpu(self):
+        state = {}
+        first = system.parse_cim(CIM, state, now=1_100)
+        node = first[6072]
+        self.assertEqual((node["ppid"], node["uid"], node["rss_kb"], node["elapsed"]), (5000, 1, 102400, 100))
+        later = json.loads(CIM)
+        later[0]["UserModeTime"] += 5_000_000          # half a second of CPU in one second
+        self.assertEqual(system.parse_cim(json.dumps(later), state, now=1_101)[6072]["cpu"], 50.0)
+        self.assertEqual(system.parse_cim("not json"), {})
+
+    def test_command_lines(self):
+        args = '"C:\\Program Files\\nodejs\\node.exe" C:\\dev\\shop\\node_modules\\vite\\bin\\vite.js --port 5173'
+        self.assertEqual(classify.base(args), "node")
+        self.assertEqual(classify.framework(args)["id"], "vite")
+        self.assertEqual(classify.dir_from_args(args), "C:\\dev\\shop")
+        self.assertEqual(classify.kind_of("node.exe", args, 1, 1, classify.framework(args)), "dev")
+        self.assertTrue(classify.is_shell_command("C:\\Windows\\system32\\cmd.exe /d /s /c npm run dev"))
+        self.assertTrue(classify.is_interactive_shell("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"))
+        code = '"C:\\Users\\k\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe" --type=utility'
+        self.assertEqual(classify.kind_of("Code.exe", code, 1, 1, classify.framework(code)), "app")
+        self.assertEqual(classify.kind_of("svchost.exe", "svchost.exe -k netsvcs", 0, 1, None), "system")
+
+
 class Rules(unittest.TestCase):
     procs = system.parse_ps(PS)
 
@@ -125,6 +181,37 @@ class NewRules(unittest.TestCase):
             self.assertIsNone(h._idle_for(5432, "database", old, 0, now, four_hours), "databases are never idle")
             h.last_active[5173] = now - 60
             self.assertIsNone(h._idle_for(5173, "dev", old, 0, now, four_hours), "used a minute ago")
+
+
+class SurvivesRestart(unittest.TestCase):
+    def test_an_app_keeps_running_and_is_picked_up_by_the_next_harbor(self):
+        with tempfile.TemporaryDirectory() as d:
+            port = free_port()
+            first = Harbor(Store(d))
+            app = first.store.upsert_app({"name": "demo", "cwd": d, "command": f"{sys.executable} -u -m http.server {port} --bind 127.0.0.1"})
+            first.refresh(initial=True)
+            first._publish()
+            first.start_app(app["id"])
+            for _ in range(50):
+                if not probe.port_free(port):
+                    break
+                time.sleep(0.1)
+            pid = first.managed[app["id"]].pid
+            first.stop()                                 # Harbor stops; the app must not
+            self.assertTrue(system.is_alive(pid))
+            self.assertFalse(probe.port_free(port), "the app stopped when Harbor stopped")
+            second = Harbor(Store(d))
+            second.managed.update(__import__("harbor.control", fromlist=["Managed"]).Managed.adopt_all(second.store, second._on_exit))
+            self.assertIn(app["id"], second.managed, "the next Harbor did not pick the app up")
+            m = second.managed[app["id"]]
+            self.assertEqual((m.pid, m.status), (pid, "running"))
+            m.stop(grace=2)
+            for _ in range(40):
+                if m.status == "stopped":
+                    break
+                time.sleep(0.1)
+            self.assertEqual(m.status, "stopped")
+            self.assertFalse((Path(d) / "run" / f"{app['id']}.json").exists())
 
 
 class Discovery(unittest.TestCase):

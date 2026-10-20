@@ -39,7 +39,7 @@ export function AppsView({ snap, actions, selectedId, onSelect, onEdit, onDiscov
         <h2 className="text-lg font-semibold text-ink">Start your apps from one place</h2>
         <p className="max-w-md text-sm text-muted">Save the command, folder and port of each project once. Harbor starts it, keeps its output, warns you when the port is taken, and stops the whole thing cleanly.</p>
         <div className="mt-2 flex gap-2">
-          <Button variant="primary" icon="radar" onClick={onDiscover}>Find projects on this Mac</Button>
+          <Button variant="primary" icon="radar" onClick={onDiscover}>Find projects on this machine</Button>
           <Button icon="plus" onClick={() => onEdit({})}>Add an app</Button>
         </div>
         <p className="text-xs text-faint">Tip: on the Ports tab, any running server’s menu has “Save as app”.</p>

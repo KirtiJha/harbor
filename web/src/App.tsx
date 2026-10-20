@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Activity, type App as AppT } from "./api";
 import { useActions } from "./actions";
 import { AppEditor, DiscoverModal } from "./components/AppEditor";
+import { ActivityView } from "./components/ActivityView";
 import { AppsView } from "./components/AppsView";
+import { InsightsView } from "./components/InsightsView";
 import { Drawer } from "./components/Drawer";
 import { Icon } from "./components/Icon";
 import { Help, Palette, SettingsModal } from "./components/Palette";
@@ -12,7 +14,7 @@ import { IconButton, Kbd, Spinner, useUi } from "./components/ui";
 import { useHarbor, useLocal } from "./useHarbor";
 import { cx } from "./util";
 
-type Tab = "ports" | "apps" | "activity";
+type Tab = "ports" | "apps" | "activity" | "insights";
 
 export default function App() {
   const { toast } = useUi();
@@ -77,6 +79,7 @@ export default function App() {
       else if (e.key === "1") setTab("ports");
       else if (e.key === "2") setTab("apps");
       else if (e.key === "3") setTab("activity");
+      else if (e.key === "4") setTab("insights");
       else if (e.key === "?") { e.preventDefault(); setHelp(true); }
       else if (e.key === "n") { e.preventDefault(); setEditing({}); }
       else if (e.key === "t") setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -92,6 +95,7 @@ export default function App() {
   }), [setTab, setAppSel, setTheme]);
 
   const sel = snap?.listeners.find((l) => l.id === selected) || null;
+  const openPort = useCallback((l: { id: string }) => { setTab("ports"); setSelected(l.id); }, [setTab]);
   useEffect(() => {
     if (selected && snap && !sel) setSelected(null);
   }, [selected, snap, sel]);
@@ -115,11 +119,11 @@ export default function App() {
           <span className="transition group-hover:scale-105"><Logo size={28} /></span>
           <div className="leading-tight">
             <div className="text-[15px] font-bold tracking-tight text-ink group-hover:text-accent-ink">Harbor</div>
-            <div className="text-[10px] text-faint">every port on this Mac</div>
+            <div className="text-[10px] text-faint">every port on this machine</div>
           </div>
         </a>
         <nav className="ml-4 flex gap-1">
-          {([["ports", "Ports", snap.summary.dev, "layers"], ["apps", "Apps", appsRunning ? `${appsRunning}/${snap.apps.length}` : snap.apps.length, "play"], ["activity", "Activity", problems || null, "activity"]] as const).map(([id, label, count, icon], i) => (
+          {([["ports", "Ports", snap.summary.dev, "layers"], ["apps", "Apps", appsRunning ? `${appsRunning}/${snap.apps.length}` : snap.apps.length, "play"], ["activity", "Activity", problems || null, "activity"], ["insights", "Insights", null, "sparkle"]] as const).map(([id, label, count, icon], i) => (
             <button key={id} onClick={() => setTab(id)} title={`${label} (${i + 1})`}
               className={cx("relative flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition", tab === id ? "bg-panel-2 text-ink" : "text-muted hover:text-ink")}>
               <Icon name={icon} size={15} />{label}
@@ -182,7 +186,8 @@ export default function App() {
           )}
         </>}
         {tab === "apps" && <AppsView snap={snap} actions={actions} selectedId={appSel} onSelect={setAppSel} onEdit={setEditing} onDiscover={() => setDiscover(true)} />}
-        {tab === "activity" && <ActivityFeed items={snap.activity} onClear={() => void api.clearActivity()} />}
+        {tab === "activity" && <ActivityView snap={snap} onOpenPort={openPort} onClear={() => void api.clearActivity()} />}
+        {tab === "insights" && <InsightsView snap={snap} actions={actions} onOpenPort={openPort} onEditApp={setEditing} />}
       </main>
 
       <AppEditor app={editing} groups={[...new Set(snap.apps.map((a) => a.group).filter(Boolean) as string[])]} harborPort={snap.me.port} onClose={() => setEditing(null)} onStart={(a) => { setTab("apps"); setAppSel(a.id); void actions.startApp(a); }} />

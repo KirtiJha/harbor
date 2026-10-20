@@ -636,8 +636,13 @@ class StackLive(_Live):
         self.h.last_traffic[web["id"]] = time.time() - 120
         self.h._sleep_idle_apps()
         self.assertTrue(self._wait(lambda: self._app(web["id"])["state"] == "sleeping"), self._app(web["id"]))
-        with NO_PROXY.open(req, timeout=40) as r:
-            self.assertEqual(r.status, 200, "the request did not wake the app")
+        try:
+            with NO_PROXY.open(req, timeout=40) as r:
+                self.assertEqual(r.status, 200, "the request did not wake the app")
+        except urllib.error.HTTPError as err:
+            logs = self.get(f"/api/apps/{web['id']}/logs")
+            self.fail(f"the request did not wake the app: HTTP {err.code} {err.read()[:300]!r}; app {self._app(web['id'])}; "
+                      f"output {str(logs)[-1500:]}")
         self.assertTrue(self._wait(lambda: self._app(web["id"])["state"] == "running"))
         # workspaces remember what was running
         _, ws = self.call("POST", "/api/workspaces", {"name": "shop"})

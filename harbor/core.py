@@ -545,7 +545,7 @@ class Harbor:
     def _on_exit(self, m):
         ev = {"id": f"{time.time():.6f}-exit-{m.app_id}", "ts": time.time(), "type": m.status, "pid": m.pid, "port": m.port,
               "title": m.name, "appId": m.app_id, "level": "error" if m.status == "crashed" else "info",
-              "detail": f"exit code {m.exit_code}", "notify": m.status == "crashed"}
+              "detail": f"exit code {m.exit_code}" if m.exit_code is not None else None, "notify": m.status == "crashed"}
         self.store.add_activity([ev])
         app = self.store.app(m.app_id)
         if app and app.get("autoRestart") and m.status == "crashed":

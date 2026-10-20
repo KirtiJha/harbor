@@ -12,7 +12,18 @@ TITLE = re.compile(rb"<title[^>]*>(.*?)</title>", re.I | re.S)
 APP_NAME = re.compile(rb'<meta[^>]+(?:name|property)=["\'](?:application-name|og:site_name|apple-mobile-web-app-title)["\'][^>]+content=["\']([^"\']+)', re.I)
 
 
-def probe(port, host="127.0.0.1", timeout=1.5, path="/"):
+def probe(port, host=None, timeout=1.5, path="/"):
+    """Ask over IPv4 first, then IPv6: servers that bind `localhost` (Vite, Node 18+) often listen on ::1 only."""
+    if host:
+        return _probe(port, host, timeout, path)
+    first = _probe(port, "127.0.0.1", timeout, path)
+    if first.get("ok") or first.get("error") != "refused":
+        return first
+    second = _probe(port, "::1", timeout, path)
+    return second if second.get("ok") else first
+
+
+def _probe(port, host, timeout, path):
     started = time.monotonic()
     result = {"port": port, "url": f"http://localhost:{port}{path}", "checkedAt": time.time()}
     conn = http.client.HTTPConnection(host, port, timeout=timeout)

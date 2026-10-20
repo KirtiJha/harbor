@@ -415,3 +415,37 @@ class LiveServer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProbeIPv6(unittest.TestCase):
+    def test_a_server_listening_only_on_ipv6_loopback_is_checked_over_ipv6(self):
+        import http.server
+        if not socket.has_ipv6:
+            self.skipTest("no IPv6")
+
+        class V6(http.server.ThreadingHTTPServer):
+            address_family = socket.AF_INET6
+
+        class Page(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"<title>Only on ::1</title>"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+        try:
+            srv = V6(("::1", 0), Page)
+        except OSError:
+            self.skipTest("cannot bind ::1")
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            r = probe.probe(srv.server_address[1], timeout=3)
+            if not r.get("ok") and sys.platform == "darwin" and os.environ.get("CI"):
+                self.skipTest("loopback TCP is blocked on this macOS CI runner")
+            self.assertEqual((r.get("status"), r.get("title")), (200, "Only on ::1"), r)
+        finally:
+            srv.shutdown()
+            srv.server_close()

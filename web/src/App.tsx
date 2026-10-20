@@ -111,13 +111,13 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-4 border-b border-line bg-panel/70 px-5 py-2.5 backdrop-blur">
-        <div className="flex items-center gap-2.5">
-          <Logo size={28} />
+        <a href="/welcome" title="About Harbor" className="group flex items-center gap-2.5 rounded-lg">
+          <span className="transition group-hover:scale-105"><Logo size={28} /></span>
           <div className="leading-tight">
-            <div className="text-[15px] font-bold tracking-tight text-ink">Harbor</div>
+            <div className="text-[15px] font-bold tracking-tight text-ink group-hover:text-accent-ink">Harbor</div>
             <div className="text-[10px] text-faint">every port on this Mac</div>
           </div>
-        </div>
+        </a>
         <nav className="ml-4 flex gap-1">
           {([["ports", "Ports", snap.summary.dev, "layers"], ["apps", "Apps", appsRunning ? `${appsRunning}/${snap.apps.length}` : snap.apps.length, "play"], ["activity", "Activity", problems || null, "activity"]] as const).map(([id, label, count, icon], i) => (
             <button key={id} onClick={() => setTab(id)} title={`${label} (${i + 1})`}

@@ -421,11 +421,26 @@ NO_BUILD = """<!doctype html><meta charset=utf-8><title>Harbor</title>
 <p>The API is live: <a style="color:#7dd3fc" href="/api/state">/api/state</a></p>"""
 
 
+class _Server6(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
 def serve(harbor, port, host="127.0.0.1", ready=None):
     token = secrets.token_urlsafe(24)
     api = Api(harbor, token)
-    httpd = ThreadingHTTPServer((host, port), make_handler(api, harbor, port))
+    handler = make_handler(api, harbor, port)
+    httpd = ThreadingHTTPServer((host, port), handler)
     httpd.daemon_threads = True
+    # Browsers may try localhost over IPv6 (::1) first; answer there too, still loopback only.
+    httpd6 = None
+    if host == "127.0.0.1" and socket.has_ipv6:
+        try:
+            httpd6 = _Server6(("::1", port), handler)
+            httpd6.daemon_threads = True
+            threading.Thread(target=httpd6.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True,
+                             name="harbor-http6").start()
+        except OSError:
+            httpd6 = None
     harbor.port = port
     harbor.start()
     if ready:
@@ -434,4 +449,7 @@ def serve(harbor, port, host="127.0.0.1", ready=None):
         httpd.serve_forever(poll_interval=0.5)
     finally:
         httpd.server_close()
+        if httpd6:
+            httpd6.shutdown()
+            httpd6.server_close()
     return httpd

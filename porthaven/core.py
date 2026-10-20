@@ -529,7 +529,10 @@ class Porthaven:
                 time.sleep(0.5)
         self.refresh()
         self.last_traffic[app_id] = time.time()
-        return self.app_ports().get(app_id) if ok else None
+        if not ok:
+            return None
+        m = self.managed.get(app_id)   # the scan can lag behind a server that just started listening (Windows' netstat)
+        return self.app_ports().get(app_id) or (m.port if m and m.alive else None)
 
     # ------------------------------------------------------------ git worktrees
 

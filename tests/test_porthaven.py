@@ -627,6 +627,8 @@ class StackLive(_Live):
         req.add_header("Host", f"storeweb.localhost:{self.port}")
         with NO_PROXY.open(req, timeout=10) as r:
             self.assertEqual(r.read().decode(), f"ok http://localhost:{db_port}", "the app did not get its dependency's URL")
+        # the proxy records a request once the exchange is over, which can be just after the client has its answer
+        self.assertTrue(self._wait(lambda: self.get(f"/api/apps/{web['id']}/requests")["requests"], 5), "the request was not recorded")
         reqs = self.get(f"/api/apps/{web['id']}/requests")["requests"]
         self.assertEqual((reqs[-1]["method"], reqs[-1]["path"], reqs[-1]["status"]), ("GET", "/", 200))
         # sleep after a quiet minute, then wake on the next request

@@ -19,14 +19,20 @@ from . import classify, probe, system
 from .control import ControlError, Managed, signal_and_wait
 from .discover import discover
 from .metrics import RANGES, Metrics
+from . import gitinfo, stacks, teamfile
 from .store import Store
 
 SPARK = 60
-SLUG = re.compile(r"[^a-z0-9]+")
+SLUG = re.compile(r"[^a-z0-9.]+")
 
 
 def slugify(name):
     return SLUG.sub("-", (name or "").lower()).strip("-")[:40] or "app"
+
+
+def uuid_hex():
+    import uuid
+    return uuid.uuid4().hex[:8]
 
 
 def lan_ip():
@@ -80,6 +86,9 @@ class Porthaven:
         self.health = collections.defaultdict(lambda: collections.deque(maxlen=40))
         self.last_active = {}
         self.lan_ip = lan_ip()
+        self.requests = collections.defaultdict(lambda: collections.deque(maxlen=300))   # stable name -> recent requests
+        self.last_traffic = {}       # app id -> last time it had a connection or a proxied request
+        self.critical_seen = set()   # listener ids already reported as critically exposed
         self.metrics = Metrics(self.store.root)
         self.lan_at = time.time()
         self.procs_prev = {}
@@ -109,6 +118,7 @@ class Porthaven:
                 break
             try:
                 self.refresh()
+                self._sleep_idle_apps()
             except Exception as err:   # keep scanning; surface the failure in the snapshot instead of dying
                 self.error = f"Scan failed: {err}"
                 self._publish()
@@ -181,6 +191,18 @@ class Porthaven:
             self.store.add_activity(events)
         self._publish(events)
         self.metrics.add(self.snapshot)
+        self._report_exposure()
+
+    def _report_exposure(self):
+        """One event (with a desktop notification) the first time a listener is critically exposed."""
+        crit = {r["id"]: r for r in self.snapshot["listeners"] if (r.get("exposureRisk") or {}).get("level") == "critical"}
+        new = [r for i, r in crit.items() if i not in self.critical_seen]
+        self.critical_seen = set(crit)
+        if new:
+            evs = [{"id": f"{time.time():.6f}-exposed-{r['id']}", "ts": time.time(), "type": "exposed", "port": r["port"], "pid": r["pid"],
+                    "title": r["title"], "level": "error", "detail": r["exposureRisk"]["title"], "notify": True} for r in new]
+            self.store.add_activity(evs)
+            self._publish(evs)
 
     def _event(self, kind, row, procs):
         meta = self.store.port_meta(row["port"])
@@ -369,9 +391,13 @@ class Porthaven:
                 "lastActive": self.last_active.get(port),
                 "idleFor": self._idle_for(port, kind, p, conns.get(port, 0), now, idle_after),
                 "lanUrl": f"http://{self.lan_ip}:{port}/" if exposure == "network" and self.lan_ip else None,
+                "exposureRisk": self.exposure_risk({"exposure": exposure, "port": port}, args, fw, kind, pr) if row["uid"] == self.uid or kind == "database" else None,
                 "stableUrl": f"http://{slugs[app]}.localhost:{self.port}/" if app in slugs and self.port else None,
             })
         rows = self._merge_workers(rows, procs)
+        for r in rows:
+            if r["project"]:
+                r["project"] = {**r["project"], "git": gitinfo.info(r["project"]["root"])}
         apps = [self.app_status(a, rows) for a in self.store.apps()]
         dev = [r for r in rows if r["kind"] in ("dev", "service", "tool", "other", "database")]
         projects = {r["project"]["root"] for r in rows if r["project"]}
@@ -388,10 +414,13 @@ class Porthaven:
                         "cpu": round(sum(r["cpu"] or 0 for r in mine.values()), 1),
                         "memMb": round(sum(r["memMb"] or 0 for r in mine.values()), 1),
                         "idle": len([r for r in rows if r["idleFor"]]),
+                        "critical": len([r for r in rows if (r.get("exposureRisk") or {}).get("level") == "critical"]),
                         "idleMemMb": round(sum(r["memMb"] or 0 for r in rows if r["idleFor"]), 1),
                         "watchedDown": [int(p) for p, meta in self.store.data["ports"].items()
-                                        if meta.get("watched") and int(p) not in {r["port"] for r in rows}]},
+                                        if meta.get("watched") and int(p) not in {r["port"] for r in rows}],
+                        "portClaims": {str(p): names for p, names in teamfile.port_claims(self.store.apps()).items()}},
             "activity": self.store.activity()[-150:],
+            "workspaces": self.store.data.get("workspaces", []),
         }
 
     def _health(self, port):
@@ -423,7 +452,7 @@ class Porthaven:
         return out
 
     def proxy_target(self, slug):
-        """The port a stable name points at now: a saved app's current port, or a project's single port."""
+        """(port, name, app id) a stable name points at now: a saved app's current port, or a project's single port."""
         slugs = self.app_slugs()
         rows = (self.snapshot or {}).get("listeners", [])
         for app_id, sl in slugs.items():
@@ -431,11 +460,143 @@ class Porthaven:
                 st = next((a for a in (self.snapshot or {}).get("apps", []) if a["id"] == app_id), None)
                 ports = (st or {}).get("ports") or []
                 web = [r["port"] for r in rows if r["port"] in ports and (r.get("probe") or {}).get("ok")]
-                return (web or ports or [None])[0], (st or {}).get("name")
+                return (web or ports or [None])[0], (st or {}).get("name") or (self.store.app(app_id) or {}).get("name"), app_id
         hits = [r for r in rows if r["project"] and slugify(r["project"]["name"]) == slug and (r.get("probe") or {}).get("ok")]
         if len({r["port"] for r in hits}) == 1:
-            return hits[0]["port"], hits[0]["title"]
-        return None, None
+            return hits[0]["port"], hits[0]["title"], None
+        return None, None, None
+
+    # ------------------------------------------------------------ requests seen by the stable-name proxy
+
+    def record_request(self, slug, app_id, entry):
+        self.requests[slug].append(entry)
+        if app_id:
+            self.last_traffic[app_id] = time.time()
+
+    def app_requests(self, app_id):
+        slug = self.app_slugs().get(app_id)
+        if not slug:
+            raise ControlError("No such app.", status=404)
+        return {"slug": slug, "requests": list(self.requests.get(slug, []))}
+
+    # ------------------------------------------------------------ sleep when idle, wake on request
+
+    def _sleep_idle_apps(self):
+        now = time.time()
+        for app in self.store.apps():
+            minutes = int(app.get("sleepAfter") or 0)
+            m = self.managed.get(app["id"])
+            if not minutes or not m or not m.alive or m.status == "starting":
+                continue
+            last = max(self.last_traffic.get(app["id"], 0), m.started_at)
+            if now - last >= minutes * 60:
+                m.sleeping = True
+                self.store.add_activity([{"id": f"{now:.6f}-sleep-{app['id']}", "ts": now, "type": "slept", "port": m.port,
+                                          "title": app["name"], "appId": app["id"], "level": "info",
+                                          "detail": f"no traffic for {minutes} min" + (" · wakes on the next request" if app.get("wake", True) else "")}])
+                m.stop(grace=float(self.store.settings["graceSeconds"]), extra_pids=classify.descendants(m.pid, self.procs))
+                self.wake.set()
+
+    def wake_app(self, app_id, timeout=60.0):
+        """Start a sleeping (or stopped) app for a request to its stable name and wait until it answers."""
+        app = self.store.app(app_id)
+        if not app or not (app.get("wake", True) and (app.get("sleepAfter") or app.get("wake"))):
+            return None
+        if not self.is_running(app_id):
+            self.store.add_activity([{"id": f"{time.time():.6f}-woke-{app_id}", "ts": time.time(), "type": "woke", "port": app.get("port"),
+                                      "title": app["name"], "appId": app_id, "level": "info", "detail": "a request arrived"}])
+            try:
+                self.start_app(app_id, force=True)
+            except ControlError as err:
+                if (err.extra.get("conflict") or {}).get("suggest"):
+                    self.start_app(app_id, port=err.extra["conflict"]["suggest"], force=True)
+                else:
+                    return None
+        self.refresh()
+        ok, _ = self.wait_ready(app, timeout)
+        self.refresh()
+        self.last_traffic[app_id] = time.time()
+        return self.app_ports().get(app_id) if ok else None
+
+    # ------------------------------------------------------------ git worktrees
+
+    def app_worktrees(self, app_id):
+        app = self.store.app(app_id)
+        if not app:
+            raise ControlError("No such app.", status=404)
+        g = gitinfo.info(os.path.expanduser(app["cwd"]))
+        if not g:
+            raise ControlError(f"{app['name']} is not in a git repository.")
+        trees = gitinfo.worktrees(g["root"])
+        derived = {realpath(a["cwd"]): a for a in self.store.apps() if a.get("worktreeOf") == app_id}
+        rel = os.path.relpath(realpath(app["cwd"]), realpath(g["root"]))
+        for t in trees:
+            t["appCwd"] = os.path.normpath(os.path.join(t["path"], rel))
+            t["current"] = realpath(t["path"]) == realpath(g["root"])
+            d = derived.get(realpath(t["appCwd"]))
+            t["app"] = {"id": d["id"], "name": d["name"]} if d else None
+        return {"repo": g["repo"], "branch": g["branch"], "worktrees": trees}
+
+    def run_in_worktree(self, app_id, worktree, start=True, actor=None):
+        app = self.store.app(app_id)
+        info = self.app_worktrees(app_id)
+        tree = next((t for t in info["worktrees"] if realpath(t["path"]) == realpath(worktree)), None)
+        if not tree:
+            raise ControlError(f"{worktree} is not a worktree of {info['repo']}. Worktrees: "
+                               + ", ".join(t["path"] for t in info["worktrees"]), status=404)
+        if tree["current"]:
+            raise ControlError(f"That is {app['name']}'s own checkout; start {app['name']} itself.")
+        if not os.path.isdir(tree["appCwd"]):
+            raise ControlError(f"{tree['appCwd']} does not exist in that worktree.")
+        branch = tree["branch"] or os.path.basename(tree["path"])
+        if tree["app"]:
+            derived = self.store.app(tree["app"]["id"])
+        else:
+            used = {r["port"] for r in (self.snapshot or {}).get("listeners", [])} | {a.get("port") for a in self.store.apps()}
+            base = int(app.get("port") or 3000)
+            port = next(p for p in probe.free_ports(base + 1, 20) if p not in used)
+            base_slug = self.app_slugs().get(app_id) or slugify(app["name"])
+            derived = self.store.upsert_app({
+                "name": f"{app['name']} ({branch})", "cwd": tree["appCwd"], "command": app["command"], "port": port,
+                "env": app.get("env") or {}, "openPath": app.get("openPath", "/"), "group": app.get("group"),
+                "color": app.get("color"), "health": app.get("health"), "dependsOn": app.get("dependsOn") or [],
+                "slug": f"{slugify(branch.split('/')[-1])}.{base_slug}", "worktreeOf": app_id, "branch": branch})
+        run = self.start_app(derived["id"], force=True, actor=actor) if start and not self.is_running(derived["id"]) else None
+        self._publish()
+        st = next((a for a in self.snapshot["apps"] if a["id"] == derived["id"]), derived)
+        return {"app": st, "run": run, "stableUrl": st.get("stableUrl")}
+
+    # ------------------------------------------------------------ exposure guard
+
+    @staticmethod
+    def exposure_risk(row, args, fw, kind, pr):
+        if row["exposure"] != "network" and "--inspect=0.0.0.0" not in (args or ""):
+            return None
+        flags = set((pr or {}).get("flags") or [])
+        fid = (fw or {}).get("id")
+        if "--inspect" in (args or "") or fid == "inspector" or row["port"] == 9229:
+            return {"level": "critical", "title": "Node debugger open to the network",
+                    "why": "Anyone who can reach this machine can run code in this process through the inspector.",
+                    "fix": "Start Node with --inspect=127.0.0.1:9229 (the default), never --inspect=0.0.0.0."}
+        if "werkzeug-debugger" in flags:
+            return {"level": "critical", "title": "Werkzeug debug console open to the network",
+                    "why": "The interactive debugger runs Python code typed into the browser.",
+                    "fix": "Run Flask without --host=0.0.0.0, or turn debug mode off when the server must be reachable."}
+        if "django-debug" in flags:
+            return {"level": "high", "title": "Django debug pages open to the network",
+                    "why": "DEBUG = True pages show settings, paths and parts of your code to anyone on the network.",
+                    "fix": "Use `runserver 127.0.0.1:8000`, or DEBUG = False for anything others can reach."}
+        if kind == "database" or fid in ("postgres", "mysql", "redis", "mongo", "elastic"):
+            return {"level": "high", "title": f"{(fw or {}).get('label', 'Database')} open to the network",
+                    "why": "Local databases often have no password or a default one.",
+                    "fix": "Bind it to 127.0.0.1 (listen_addresses / bind / bindIp), or put a strong password on it."}
+        if fid == "jupyter":
+            return {"level": "high", "title": "Jupyter open to the network", "why": "A notebook server runs any code.",
+                    "fix": "Start it with --ip=127.0.0.1 and keep the token on."}
+        if kind in ("dev", "service", "other"):
+            return {"level": "medium", "title": "Dev server reachable from your network",
+                    "why": "Others on the same Wi-Fi can open it.", "fix": "Bind to 127.0.0.1 (for Vite, drop --host) unless you test from another device."}
+        return None
 
     @staticmethod
     def _merge_workers(rows, procs):
@@ -473,6 +634,8 @@ class Porthaven:
             state = m.status
         else:
             state = "stopped"
+        if not (m and m.alive) and not mine and m and getattr(m, "sleeping", False):
+            state = "sleeping"
         holder = None
         if expected and expected not in ports:
             h = next((r for r in rows if r["port"] == expected), None)
@@ -490,7 +653,7 @@ class Porthaven:
     def _row_for_pid(self, pid):
         return next((r for r in (self.snapshot or {}).get("listeners", []) if r["pid"] == pid), None)
 
-    def kill(self, pid, mode="process", force=True, confirm=False):
+    def kill(self, pid, mode="process", force=True, confirm=False, actor=None):
         procs = self.procs
         if pid not in procs:
             raise ControlError(f"Process {pid} is not running any more.", status=404)
@@ -513,7 +676,7 @@ class Porthaven:
             m.stopping = True   # stopped on purpose from Porthaven: not a crash
         if m and mode == "app":
             res = m.stop(grace=float(self.store.settings["graceSeconds"]), extra_pids=classify.descendants(m.pid, procs))
-            return self._after_kill(res, pid, "app", row)
+            return self._after_kill(res, pid, "app", row, actor)
         if mode == "app":
             root = (row["root"] or {}).get("pid") if row and row.get("root") else pid
             pids = [root] + classify.descendants(root, procs)
@@ -521,12 +684,13 @@ class Porthaven:
             pids = [pid]
         pids = [x for x in pids if x not in self.self_pids and procs.get(x, {}).get("uid") == self.uid]
         res = signal_and_wait(pids, grace=float(self.store.settings["graceSeconds"]), force=force)
-        return self._after_kill(res, pid, mode, row)
+        return self._after_kill(res, pid, mode, row, actor)
 
-    def _after_kill(self, res, pid, mode, row):
+    def _after_kill(self, res, pid, mode, row, actor=None):
         ev = {"id": f"{time.time():.6f}-kill-{pid}", "ts": time.time(), "type": "killed", "pid": pid,
               "port": row["port"] if row else None, "title": row["title"] if row else str(pid), "level": "info",
-              "detail": f"{len(res['exited']) + len(res['killed'])} process(es) stopped" + (f", {len(res['killed'])} forced" if res["killed"] else "")}
+              "detail": f"{len(res['exited']) + len(res['killed'])} process(es) stopped" + (f", {len(res['killed'])} forced" if res["killed"] else "")
+              + (f" · by {actor}" if actor else "")}
         self.store.add_activity([ev])
         self.wake.set()
         return {**res, "mode": mode, "event": ev}
@@ -543,6 +707,9 @@ class Porthaven:
         return {"stopped": container_id}
 
     def _on_exit(self, m):
+        if getattr(m, "sleeping", False):   # put to sleep on purpose; the "slept" event already says so
+            self.wake.set()
+            return
         ev = {"id": f"{time.time():.6f}-exit-{m.app_id}", "ts": time.time(), "type": m.status, "pid": m.pid, "port": m.port,
               "title": m.name, "appId": m.app_id, "level": "error" if m.status == "crashed" else "info",
               "detail": f"exit code {m.exit_code}" if m.exit_code is not None else None, "notify": m.status == "crashed"}
@@ -561,10 +728,35 @@ class Porthaven:
             self.store.add_activity([{"id": f"{time.time():.6f}-x", "ts": time.time(), "type": "crashed", "title": app_id,
                                       "level": "error", "detail": f"auto-restart failed: {err}"}])
 
-    def start_app(self, app_id, port=None, force=False, take_over=False):
+    # ------------------------------------------------------------ starting apps and stacks
+
+    def app_ports(self):
+        """{app id: the port it runs on now} for running apps."""
+        return {a["id"]: a["ports"][0] for a in (self.snapshot or {}).get("apps", []) if a.get("ports")}
+
+    def is_running(self, app_id):
+        st = next((a for a in (self.snapshot or {}).get("apps", []) if a["id"] == app_id), None)
+        m = self.managed.get(app_id)
+        return bool((m and m.alive) or (st and st["state"] in ("running", "starting", "external")))
+
+    def start_app(self, app_id, port=None, force=False, take_over=False, with_deps=True, actor=None):
         app = self.store.app(app_id)
         if not app:
             raise ControlError("No such app.", status=404)
+        if with_deps and app.get("dependsOn"):
+            try:
+                order = stacks.start_order(self.store.apps(), self.app_slugs(), [app_id])
+            except stacks.StackError as err:
+                raise ControlError(str(err)) from err
+            waiting = [a for a in order[:-1] if not self.is_running(a["id"])]
+            if waiting:
+                threading.Thread(target=self._start_stack, args=(order, {app_id: port}, take_over, actor), daemon=True,
+                                 name=f"porthaven-stack-{app_id}").start()
+                return {"stack": [a["name"] for a in order], "starting": [a["name"] for a in waiting] + [app["name"]]}
+        return self._launch(app, port, force, take_over, actor)
+
+    def _launch(self, app, port=None, force=False, take_over=False, actor=None):
+        app_id = app["id"]
         current = self.managed.get(app_id)
         if current and current.alive:
             raise ControlError(f"{app['name']} is already running (pid {current.pid}).", status=409)
@@ -588,12 +780,60 @@ class Porthaven:
                                           "detail": f"held by {holder['title']}" if holder else "port busy"}])
                 raise ControlError(f"Port {want} is in use" + (f" by {holder['title']} (pid {holder['pid']})" if holder else "") + ".",
                                    status=409, conflict={"port": int(want), "holder": holder, "suggest": alt[0] if alt else None})
-        m = Managed(app, int(want) if want else None, self.store.log_path(app_id), self._on_exit, self.store.root / "run")
+        ports = self.app_ports()
+        if want:
+            ports[app_id] = int(want)
+        wired = stacks.wiring(self.store.apps(), self.app_slugs(), ports)
+        m = Managed(app, int(want) if want else None, self.store.log_path(app_id), self._on_exit, self.store.root / "run", wired=wired)
         self.managed[app_id] = m
         self.store.add_activity([{"id": f"{time.time():.6f}-start-{app_id}", "ts": time.time(), "type": "started", "pid": m.pid,
-                                  "port": m.port, "title": app["name"], "appId": app_id, "level": "info"}])
+                                  "port": m.port, "title": app["name"], "appId": app_id, "level": "info",
+                                  **({"detail": f"by {actor}"} if actor else {})}])
         self.wake.set()
         return m.summary()
+
+    def wait_ready(self, app, timeout=90.0):
+        """Until the app listens and, when it has a health path, that path answers 2xx/3xx."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            m = self.managed.get(app["id"])
+            if m and not m.alive:
+                return False, f"{app['name']} exited (code {m.exit_code}) before it was ready"
+            port = self.app_ports().get(app["id"]) or (m.port if m else None)
+            if port and not probe.port_free(int(port)):
+                if not app.get("health"):
+                    return True, None
+                r = probe.probe(int(port), path=app["health"])
+                if r.get("ok") and r.get("status", 500) < 400:
+                    return True, None
+            time.sleep(0.5)
+        return False, f"{app['name']} was not ready within {int(timeout)} s"
+
+    def _start_stack(self, order, ports=None, take_over=False, actor=None):
+        ports = ports or {}
+        for app in order:
+            if self.is_running(app["id"]):
+                continue
+            try:
+                self._launch(app, ports.get(app["id"]), take_over=take_over, actor=actor)
+            except ControlError as err:
+                self._stack_event(app, "crashed", f"could not start: {err}", "error")
+                return False
+            if app is order[-1]:
+                break
+            self.refresh()
+            ok, why = self.wait_ready(app)
+            if not ok:
+                self._stack_event(app, "crashed", f"{why}; dependants were not started", "error")
+                return False
+            self._stack_event(app, "ready", "healthy" + (f" ({app['health']})" if app.get("health") else ""), "info")
+        return True
+
+    def _stack_event(self, app, kind, detail, level):
+        self.store.add_activity([{"id": f"{time.time():.6f}-stack-{app['id']}", "ts": time.time(), "type": kind,
+                                  "port": self.app_ports().get(app["id"]) or app.get("port"), "title": app["name"],
+                                  "appId": app["id"], "level": level, "detail": detail, "notify": level == "error"}])
+        self.wake.set()
 
     def stop_app(self, app_id):
         app = self.store.app(app_id)
@@ -735,17 +975,21 @@ class Porthaven:
         for a in apps:
             try:
                 if action == "start":
-                    st = self.app_status(a, self.snapshot["listeners"])
-                    if st["state"] in ("running", "starting", "external"):
+                    if self.is_running(a["id"]):
                         out[a["name"]] = "already running"
                         continue
-                    self.start_app(a["id"])
                     out[a["name"]] = "started"
                 else:
                     self.stop_app(a["id"])
                     out[a["name"]] = "stopped"
             except ControlError as err:
                 out[a["name"]] = str(err)
+        if action == "start":
+            try:
+                order = stacks.start_order(self.store.apps(), self.app_slugs(), [a["id"] for a in apps])
+            except stacks.StackError as err:
+                raise ControlError(str(err)) from err
+            threading.Thread(target=self._start_stack, args=(order,), daemon=True, name=f"porthaven-group-{group}").start()
         self.wake.set()
         return {"group": group, "results": out}
 
@@ -784,6 +1028,113 @@ class Porthaven:
                 "samples": self.metrics.query(seconds, 240, now),
                 "activity": [e for e in self.store.activity() if e["ts"] >= now - seconds],
                 "health": health}
+
+    # ------------------------------------------------------------ porthaven.toml
+
+    def import_teamfile(self, path):
+        found = teamfile.find(path)
+        if not found:
+            raise ControlError(f"No {teamfile.NAME} in {path} or the folders above it.", status=404)
+        try:
+            apps = teamfile.load(found)
+        except (teamfile.TeamfileError, OSError) as err:
+            raise ControlError(str(err)) from err
+        key_to_slug = {a["source"]["key"]: a["slug"] for a in apps}
+        added, updated, ids = [], [], []
+        for spec in apps:
+            spec["dependsOn"] = [key_to_slug.get(d, d) for d in spec.get("dependsOn") or []]
+            existing = next((a for a in self.store.apps() if (a.get("source") or {}) == spec["source"]), None)
+            if existing:
+                saved = self.store.upsert_app(spec, existing["id"])
+                updated.append(saved["name"])
+            else:
+                saved = self.store.upsert_app(spec)
+                added.append(saved["name"])
+            ids.append(saved["id"])
+        self._publish()
+        claims = {p: names for p, names in teamfile.port_claims(self.store.apps()).items()
+                  if any(n in names for n in added + updated)}
+        return {"file": str(found), "added": added, "updated": updated, "ids": ids, "claims": claims}
+
+    def teamfile_up(self, path, actor=None):
+        res = self.import_teamfile(path)
+        try:
+            order = stacks.start_order(self.store.apps(), self.app_slugs(), res["ids"])
+        except stacks.StackError as err:
+            raise ControlError(str(err)) from err
+        threading.Thread(target=self._start_stack, args=(order, None, False, actor), daemon=True, name="porthaven-up").start()
+        return {**res, "order": [a["name"] for a in order]}
+
+    def teamfile_down(self, path):
+        found = teamfile.find(path)
+        if not found:
+            raise ControlError(f"No {teamfile.NAME} in {path} or the folders above it.", status=404)
+        mine = [a for a in self.store.apps() if (a.get("source") or {}).get("file") == str(found)]
+        stopped = []
+        for a in reversed(mine):
+            if self.is_running(a["id"]):
+                try:
+                    self.stop_app(a["id"])
+                    stopped.append(a["name"])
+                except ControlError:
+                    pass
+        return {"file": str(found), "stopped": stopped}
+
+    def export_teamfile(self, group=None, folder=None):
+        apps = [a for a in self.store.apps() if (group is None or (a.get("group") or "") == group)]
+        if folder:
+            base = realpath(folder)
+            apps = [a for a in apps if (realpath(a["cwd"]) or "").startswith(base)]
+        if not apps:
+            raise ControlError("No saved apps to export.", status=404)
+        base = folder or os.path.commonpath([realpath(a["cwd"]) for a in apps])
+        return {"base": base, "toml": teamfile.dump(apps, base)}
+
+    # ------------------------------------------------------------ workspaces
+
+    def save_workspace(self, name):
+        running = [a for a in self.store.apps() if self.is_running(a["id"])]
+        if not running:
+            raise ControlError("No saved apps are running, so there is nothing to save.")
+        ws = {"id": uuid_hex(), "name": (name or "Workspace").strip()[:60], "apps": [a["id"] for a in running], "createdAt": time.time()}
+        with self.store.lock:
+            self.store.data.setdefault("workspaces", []).append(ws)
+            self.store.save()
+        self._publish()
+        return ws
+
+    def restore_workspace(self, ws_id, stop_others=False, actor=None):
+        ws = next((w for w in self.store.data.get("workspaces", []) if w["id"] == ws_id), None)
+        if not ws:
+            raise ControlError("No such workspace.", status=404)
+        stopped = []
+        if stop_others:
+            for a in self.store.apps():
+                if a["id"] not in ws["apps"] and self.is_running(a["id"]):
+                    try:
+                        self.stop_app(a["id"])
+                        stopped.append(a["name"])
+                    except ControlError:
+                        pass
+        ids = [i for i in ws["apps"] if self.store.app(i)]
+        try:
+            order = stacks.start_order(self.store.apps(), self.app_slugs(), ids)
+        except stacks.StackError as err:
+            raise ControlError(str(err)) from err
+        threading.Thread(target=self._start_stack, args=(order, None, False, actor), daemon=True, name="porthaven-workspace").start()
+        self.store.add_activity([{"id": f"{time.time():.6f}-ws-{ws_id}", "ts": time.time(), "type": "started", "title": ws["name"],
+                                  "level": "info", "detail": f"workspace: {len(order)} app(s)" + (f", stopped {len(stopped)} other(s)" if stopped else "")}])
+        return {"workspace": ws["name"], "starting": [a["name"] for a in order], "stopped": stopped}
+
+    def delete_workspace(self, ws_id):
+        with self.store.lock:
+            before = len(self.store.data.get("workspaces", []))
+            self.store.data["workspaces"] = [w for w in self.store.data.get("workspaces", []) if w["id"] != ws_id]
+            self.store.save()
+        self._publish()
+        if before == len(self.store.data["workspaces"]):
+            raise ControlError("No such workspace.", status=404)
+        return {"deleted": ws_id}
 
     def shutdown_apps(self):
         for m in self.managed.values():

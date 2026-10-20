@@ -11,7 +11,7 @@ import time
 
 from pathlib import Path
 
-from . import system
+from . import stacks, system
 from .system import is_alive
 
 ANSI_OSC = re.compile(r"\x1b\][^\x07]*\x07")
@@ -78,7 +78,7 @@ def expand_command(command, port):
     return command.replace("{port}", str(port)) if port else command
 
 
-def launch_env(app, port):
+def launch_env(app, port, wired=None):
     env = dict(os.environ)
     path = env.get("PATH", "")
     for extra in () if system.IS_WINDOWS else ("/opt/homebrew/bin", "/usr/local/bin"):
@@ -86,8 +86,9 @@ def launch_env(app, port):
             path = f"{path}{os.pathsep}{extra}" if path else extra
     env["PATH"] = path
     env.update({"FORCE_COLOR": "1", "BROWSER": "none", "PORTHAVEN_APP": app["id"]})
+    env.update(stacks.env_for(wired or {}))
     for k, v in (app.get("env") or {}).items():
-        env[str(k)] = str(v)
+        env[str(k)] = stacks.expand(str(v), port, wired or {})
     if port:
         env["PORT"] = str(port)
     return env
@@ -97,7 +98,7 @@ class Managed:
     """One launch of a saved app. The app writes straight to its log file in its own session, so it keeps
     running when Porthaven stops or restarts; Porthaven follows the file and picks the app up again on start."""
 
-    def __init__(self, app, port, log_path, on_exit, run_dir, adopt=None):
+    def __init__(self, app, port, log_path, on_exit, run_dir, adopt=None, wired=None):
         self.app_id = app["id"]
         self.name = app.get("name") or app["id"]
         self.lines = collections.deque(maxlen=4000)
@@ -105,6 +106,7 @@ class Managed:
         self.cond = threading.Condition()
         self.exit_code = None
         self.stopping = False
+        self.sleeping = False
         self.ended_at = None
         self.log_path = log_path
         self.on_exit = on_exit
@@ -118,7 +120,7 @@ class Managed:
             self._add(f"Porthaven restarted; {self.name} kept running (pid {self.pid})", "porthaven")
         else:
             self.port = port
-            self.command = expand_command(app["command"], port)
+            self.command = stacks.expand(app["command"], port, wired or {})
             self.cwd = os.path.expanduser(app["cwd"])
             self.started_at = time.time()
             self.status = "starting"
@@ -129,7 +131,7 @@ class Managed:
                 self.offset = f.tell()
             out = open(log_path, "ab")
             try:
-                self.proc = subprocess.Popen(system.shell_argv(self.command), cwd=self.cwd, env=launch_env(app, port),
+                self.proc = subprocess.Popen(system.shell_argv(self.command), cwd=self.cwd, env=launch_env(app, port, wired),
                                              stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                                              **system.spawn_options())
             except OSError as err:

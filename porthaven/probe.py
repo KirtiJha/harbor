@@ -9,6 +9,9 @@ import socket
 import time
 
 TITLE = re.compile(rb"<title[^>]*>(.*?)</title>", re.I | re.S)
+# Pages that mean "this server runs code for whoever opens it" when reachable from the network.
+DANGER = [("werkzeug-debugger", b"Werkzeug Debugger"), ("werkzeug-debugger", b"__debugger__"),
+          ("django-debug", b"DEBUG = True"), ("django-debug", b"The install worked successfully! Congratulations!")]
 APP_NAME = re.compile(rb'<meta[^>]+(?:name|property)=["\'](?:application-name|og:site_name|apple-mobile-web-app-title)["\'][^>]+content=["\']([^"\']+)', re.I)
 
 
@@ -34,6 +37,9 @@ def _probe(port, host, timeout, path):
         result.update({"ok": True, "status": resp.status, "reason": resp.reason, "server": resp.getheader("Server"),
                        "contentType": (resp.getheader("Content-Type") or "").split(";")[0] or None,
                        "location": resp.getheader("Location"), "ms": round((time.monotonic() - started) * 1000)})
+        flags = [name for name, marker in DANGER if marker in body]
+        if flags:
+            result["flags"] = flags
         m = APP_NAME.search(body) or TITLE.search(body)
         if m:
             title = html.unescape(m.group(1).decode("utf-8", "replace")).strip()

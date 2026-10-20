@@ -33,7 +33,7 @@ class Store:
         (self.root / "logs").mkdir(exist_ok=True)
         self.path = self.root / "state.json"
         self.lock = threading.RLock()
-        self.data = {"apps": [], "ports": {}, "settings": dict(DEFAULT_SETTINGS), "activity": []}
+        self.data = {"apps": [], "ports": {}, "settings": dict(DEFAULT_SETTINGS), "activity": [], "workspaces": []}
         if self.path.exists():
             try:
                 saved = json.loads(self.path.read_text())
@@ -104,7 +104,8 @@ class Store:
 
     def upsert_app(self, values, app_id=None):
         with self.lock:
-            fields = {k: values[k] for k in ("name", "cwd", "command", "port", "env", "openPath", "group", "color", "autoRestart", "slug")
+            fields = {k: values[k] for k in ("name", "cwd", "command", "port", "env", "openPath", "group", "color", "autoRestart", "slug",
+                                         "dependsOn", "health", "sleepAfter", "wake", "branch", "worktreeOf", "source")
                       if k in values}
             if app_id:
                 app = self.app(app_id)

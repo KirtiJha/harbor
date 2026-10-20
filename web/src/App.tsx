@@ -65,6 +65,11 @@ export default function App() {
     const down = snap.summary.watchedDown.length;
     const running = snap.summary.dev;
     document.title = `${down ? `⚠ ${down} down · ` : ""}Porthaven · ${running} port${running === 1 ? "" : "s"}`;
+    // Installed as an app: the dock/taskbar badge counts what needs you (watched ports down, critical exposures).
+    const attention = down + (snap.summary.critical || 0);
+    const nav = navigator as Navigator & { setAppBadge?: (n: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    if (attention) nav.setAppBadge?.(attention).catch(() => {});
+    else nav.clearAppBadge?.().catch(() => {});
   }, [snap]);
 
   useEffect(() => {

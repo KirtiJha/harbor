@@ -6,6 +6,10 @@
   porthaven kill <port> [--app] [-y]   stop what is on a port (--app: the whole app, e.g. `make dev`)
   porthaven free [from] [-n N]  the next free ports
   porthaven open <port>         open a port in the browser
+  porthaven up [dir]            start the apps in porthaven.toml, dependencies first;  `down` stops them
+  porthaven init [dir]          write a porthaven.toml from your saved apps or the projects found there
+  porthaven start|stop <app>    start (with its dependencies) or stop a saved app
+  porthaven mcp                 Model Context Protocol server for coding agents (Claude Code, Cursor, …)
   porthaven service install     start Porthaven at login (macOS, Linux, Windows); `uninstall` / `status`
 """
 from __future__ import annotations
@@ -13,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -136,6 +141,115 @@ def cmd_free(args):
 def cmd_open(args):
     webbrowser.open(f"http://localhost:{args.port}/")
     return 0
+
+
+def cmd_up(args):
+    from .client import Client, ClientError, ensure_server
+    try:
+        ensure_server(log=print)
+        c = Client("cli")
+        res = c.call("POST", "/api/teamfile/up", {"path": os.path.abspath(args.dir)})
+    except ClientError as err:
+        print(f"{C['r']}{err}{C['x']}")
+        return 2
+    print(f"{C['b']}{res['file']}{C['x']}  {C['dim']}{len(res['added'])} added, {len(res['updated'])} updated{C['x']}")
+    for port, names in (res.get("claims") or {}).items():
+        print(f"{C['y']}⚠ port {port} is also expected by {', '.join(names)}{C['x']}")
+    print(f"{C['dim']}starting in order: {' → '.join(res['order'])}{C['x']}")
+    ids, deadline, last = set(res["ids"]), time.time() + 180, {}
+    while time.time() < deadline:
+        st = {a["id"]: a for a in c.state()["apps"] if a["id"] in ids}
+        for a in st.values():
+            line = (a["state"], tuple(a["ports"]))
+            if last.get(a["id"]) != line:
+                last[a["id"]] = line
+                where = f"  {a['stableUrl']}" if a.get("stableUrl") and a["ports"] else ""
+                color = C["g"] if a["state"] in ("running", "external") else C["r"] if a["state"] == "crashed" else C["dim"]
+                print(f"  {color}{a['state']:<9}{C['x']} {a['name']:<24} {':' + str(a['ports'][0]) if a['ports'] else '':<7}{where}")
+        if all(a["state"] in ("running", "external") and a["ports"] for a in st.values()):
+            print(f"{C['g']}All {len(st)} up.{C['x']}  Dashboard: http://localhost:7475/")
+            return 0
+        if any(a["state"] == "crashed" for a in st.values()):
+            print(f"{C['r']}Something crashed. See its output in the dashboard (Apps) or ~/.porthaven/logs.{C['x']}")
+            return 1
+        time.sleep(1)
+    print("Still starting after 3 minutes; check the dashboard.")
+    return 1
+
+
+def cmd_down(args):
+    from .client import Client, ClientError
+    try:
+        res = Client("cli").call("POST", "/api/teamfile/down", {"path": os.path.abspath(args.dir)})
+    except ClientError as err:
+        print(f"{C['r']}{err}{C['x']}")
+        return 2
+    print(f"Stopped {len(res['stopped'])}: {', '.join(res['stopped']) or 'nothing was running'}.")
+    return 0
+
+
+def cmd_init(args):
+    from pathlib import Path
+    from . import teamfile
+    from .discover import discover
+    folder = Path(os.path.abspath(args.dir))
+    target = folder / teamfile.NAME
+    if target.exists() and not args.force:
+        print(f"{target} already exists (use --force to overwrite).")
+        return 1
+    saved = [a for a in Store().apps() if os.path.realpath(os.path.expanduser(a["cwd"])).startswith(str(folder.resolve()))]
+    if not saved:
+        found = discover(str(folder), 3)["items"]
+        seen, saved = set(), []
+        for it in found:
+            if it["cwd"] in seen:
+                continue
+            seen.add(it["cwd"])
+            saved.append({"name": it["name"], "cwd": it["cwd"], "command": it["command"], "port": it["port"],
+                          "slug": re.sub(r"[^a-z0-9-]", "-", (it["rel"] if it["rel"] != "." else it["name"]).lower()).strip("-")})
+    if not saved:
+        print("No saved apps or runnable projects found here. Add [apps.<name>] tables by hand; see `porthaven init --help`.")
+        return 1
+    target.write_text(teamfile.dump(saved, folder))
+    print(f"Wrote {target} with {len(saved)} app(s): {', '.join(a['name'] for a in saved)}.\nCheck it, commit it, then `porthaven up`.")
+    return 0
+
+
+def _app_call(args, action):
+    from .client import Client, ClientError, ensure_server
+    try:
+        ensure_server(log=print)
+        c = Client("cli")
+        apps = c.state()["apps"]
+        ref = args.app.lower()
+        app = next((a for a in apps if ref in (a["id"].lower(), (a.get("slugName") or "").lower(), a["name"].lower())), None)
+        if not app:
+            print(f"No saved app “{args.app}”. Saved apps: {', '.join(a.get('slugName') or a['name'] for a in apps) or 'none'}.")
+            return 1
+        res = c.call("POST", f"/api/apps/{app['id']}/{action}", {"port": args.port} if getattr(args, "port", None) else {})
+    except ClientError as err:
+        print(f"{C['r']}{err}{C['x']}")
+        return 2
+    if action == "start" and "stack" in res:
+        print(f"Starting {' → '.join(res['stack'])} (dependencies first).")
+    elif action == "start":
+        print(f"{C['g']}Started{C['x']} {app['name']} on :{res.get('port')}  {app.get('stableUrl') or ''}")
+    else:
+        print(f"Stopped {app['name']}.")
+    return 0
+
+
+def cmd_start(args):
+    return _app_call(args, "start")
+
+
+def cmd_stop(args):
+    return _app_call(args, "stop")
+
+
+def cmd_mcp(args):
+    from .mcp import serve_stdio
+    return serve_stdio()
 
 
 LABEL = "dev.porthaven.dashboard"
@@ -297,6 +411,25 @@ def main(argv=None):
     s.add_argument("action", choices=["install", "uninstall", "status"])
     s.add_argument("--port", type=int, default=DEFAULT_PORT)
     s.set_defaults(fn=cmd_service)
+    s = sub.add_parser("up", help="start the apps in porthaven.toml, dependencies first")
+    s.add_argument("dir", nargs="?", default=".")
+    s.set_defaults(fn=cmd_up)
+    s = sub.add_parser("down", help="stop the apps in porthaven.toml")
+    s.add_argument("dir", nargs="?", default=".")
+    s.set_defaults(fn=cmd_down)
+    s = sub.add_parser("init", help="write a porthaven.toml for this folder")
+    s.add_argument("dir", nargs="?", default=".")
+    s.add_argument("--force", action="store_true")
+    s.set_defaults(fn=cmd_init)
+    s = sub.add_parser("start", help="start a saved app (and its dependencies)")
+    s.add_argument("app")
+    s.add_argument("--port", type=int)
+    s.set_defaults(fn=cmd_start)
+    s = sub.add_parser("stop", help="stop a saved app")
+    s.add_argument("app")
+    s.set_defaults(fn=cmd_stop)
+    s = sub.add_parser("mcp", help="Model Context Protocol server (stdio) for coding agents")
+    s.set_defaults(fn=cmd_mcp)
     s = sub.add_parser("open", help="open a port in the browser")
     s.add_argument("port", type=int)
     s.set_defaults(fn=cmd_open)

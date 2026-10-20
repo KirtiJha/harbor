@@ -274,7 +274,7 @@ def free_port():
     return probe.free_ports(47000, 1)[0]
 
 
-class LiveServer(unittest.TestCase):
+class _Live(unittest.TestCase):
     """Porthaven's real HTTP server on a free port, with its state in a temporary folder."""
 
     @classmethod
@@ -338,6 +338,8 @@ class LiveServer(unittest.TestCase):
     def get(cls, path):
         return cls.call("GET", path)[1]
 
+
+class LiveServer(_Live):
     def test_sees_itself_and_will_not_stop_itself(self):
         snap = self.get("/api/state")
         self.h.refresh()
@@ -453,3 +455,215 @@ class ProbeIPv6(unittest.TestCase):
         finally:
             srv.shutdown()
             srv.server_close()
+
+
+# ---------------------------------------------------------------- Porthaven 1.2 features
+
+from porthaven import gitinfo, mcp, stacks, teamfile  # noqa: E402
+
+
+class Stacks(unittest.TestCase):
+    apps = [{"id": "a", "name": "API", "dependsOn": ["db"]}, {"id": "w", "name": "Web", "dependsOn": ["api"]},
+            {"id": "d", "name": "DB"}]
+    slugs = {"a": "api", "w": "web", "d": "db"}
+
+    def test_dependencies_start_first(self):
+        self.assertEqual([a["id"] for a in stacks.start_order(self.apps, self.slugs, ["w"])], ["d", "a", "w"])
+
+    def test_cycles_and_unknown_names_are_explained(self):
+        loop = [{"id": "x", "name": "X", "dependsOn": ["y"]}, {"id": "y", "name": "Y", "dependsOn": ["x"]}]
+        with self.assertRaisesRegex(stacks.StackError, "circle"):
+            stacks.start_order(loop, {"x": "x", "y": "y"}, ["x"])
+        with self.assertRaisesRegex(stacks.StackError, "no saved app"):
+            stacks.start_order([{"id": "x", "name": "X", "dependsOn": ["ghost"]}], {"x": "x"}, ["x"])
+
+    def test_placeholders_and_sibling_variables(self):
+        wired = stacks.wiring(self.apps, self.slugs, {"a": 8001, "d": 5432})
+        self.assertEqual(stacks.expand("--port {port} --api {url:api} --db {port:db} {url:nope}", 3000, wired),
+                         "--port 3000 --api http://localhost:8001 --db 5432 {url:nope}")
+        self.assertEqual(stacks.env_for(wired)["PORTHAVEN_API_URL"], "http://localhost:8001")
+
+
+TOML = """
+# the shop
+group = "Shop"
+
+[apps.api]
+command = "uvicorn main:app --port {port}"   # comment after a value
+cwd = "."
+port = 8_001
+health = "/health"
+
+[apps.web]
+name = 'Storefront'
+command = "npm run dev -- --port {port}"
+port = 5173
+depends_on = ["api"]
+env = { API_URL = "{url:api}", DEBUG = "1" }
+sleep_after = 30
+"""
+
+
+class Teamfile(unittest.TestCase):
+    def test_reads_porthaven_toml_without_tomllib(self):
+        doc = teamfile._mini_toml(TOML)
+        self.assertEqual(doc["group"], "Shop")
+        self.assertEqual(doc["apps"]["api"]["port"], 8001)
+        self.assertEqual(doc["apps"]["web"]["env"], {"API_URL": "{url:api}", "DEBUG": "1"})
+        self.assertEqual(doc["apps"]["web"]["depends_on"], ["api"])
+
+    def test_load_dump_and_claims(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "porthaven.toml").write_text(TOML)
+            apps = teamfile.load(teamfile.find(d))
+            web = next(a for a in apps if a["slug"] == "web")
+            self.assertEqual((web["name"], web["sleepAfter"], web["group"], web["dependsOn"]), ("Storefront", 30, "Shop", ["api"]))
+            again = teamfile._mini_toml(teamfile.dump(apps, d))
+            self.assertEqual(again["apps"]["web"]["depends_on"], ["api"])
+            other = {"name": "Other", "cwd": tempfile.gettempdir(), "port": 5173}
+            self.assertEqual(teamfile.port_claims(apps + [other]), {5173: ["Storefront", "Other"]})
+
+    def test_mistakes_are_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "porthaven.toml").write_text("[apps.x]\ncommand = \"a\"\nwhat = 1\n")
+            with self.assertRaisesRegex(teamfile.TeamfileError, "unknown setting"):
+                teamfile.load(Path(d, "porthaven.toml"))
+
+
+@unittest.skipUnless(__import__("shutil").which("git"), "git is not installed")
+class Worktrees(unittest.TestCase):
+    def test_branch_and_worktree_are_detected(self):
+        import subprocess as sp
+        with tempfile.TemporaryDirectory() as d:
+            repo, tree = Path(d, "repo"), Path(d, "repo-feature")
+            repo.mkdir()
+            git = lambda *a, cwd=repo: sp.run(["git", *a], cwd=cwd, check=True, capture_output=True)
+            git("init", "-q", "-b", "main")
+            git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x")
+            git("worktree", "add", "-q", "-b", "feature/checkout", str(tree))
+            self.assertEqual(gitinfo.info(str(repo))["branch"], "main")
+            wt = gitinfo.info(str(tree))
+            self.assertEqual((wt["branch"], wt["worktree"], wt["repo"]), ("feature/checkout", True, "repo"))
+            self.assertEqual({t["branch"] for t in gitinfo.worktrees(repo)}, {"main", "feature/checkout"})
+
+
+class Exposure(unittest.TestCase):
+    def test_dangerous_things_on_the_network_are_flagged(self):
+        net = {"exposure": "network", "port": 9229}
+        self.assertEqual(Porthaven.exposure_risk(net, "node --inspect=0.0.0.0:9229 app.js", None, "dev", None)["level"], "critical")
+        pg = classify.framework("/opt/homebrew/bin/postgres -D x")
+        self.assertEqual(Porthaven.exposure_risk({"exposure": "network", "port": 5432}, "postgres", pg, "database", None)["level"], "high")
+        self.assertEqual(Porthaven.exposure_risk({"exposure": "network", "port": 5000}, "flask run", None, "dev",
+                                                 {"flags": ["werkzeug-debugger"]})["level"], "critical")
+        self.assertIsNone(Porthaven.exposure_risk({"exposure": "local", "port": 9229}, "node --inspect app.js", None, "dev", None))
+
+
+class Mcp(unittest.TestCase):
+    def test_protocol(self):
+        class Fake:
+            def call(self, name, args):
+                if name == "find_free_ports":
+                    return "3001 3002"
+                raise mcp.ClientError("Porthaven is not running")
+        init = mcp.handle(Fake(), {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})
+        self.assertEqual((init["result"]["protocolVersion"], init["result"]["serverInfo"]["name"]), ("2025-06-18", "porthaven"))
+        self.assertIsNone(mcp.handle(Fake(), {"jsonrpc": "2.0", "method": "notifications/initialized"}))
+        names = {t["name"] for t in mcp.handle(Fake(), {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]}
+        self.assertTrue({"list_ports", "start_app", "app_logs", "stop_port", "run_in_worktree"} <= names)
+        ok = mcp.handle(Fake(), {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "find_free_ports", "arguments": {}}})
+        self.assertEqual(ok["result"]["content"][0]["text"], "3001 3002")
+        err = mcp.handle(Fake(), {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "list_ports", "arguments": {}}})
+        self.assertTrue(err["result"]["isError"])
+        self.assertEqual(mcp.handle(Fake(), {"jsonrpc": "2.0", "id": 5, "method": "nope"})["error"]["code"], -32601)
+
+
+SERVE = """import http.server, os, sys
+port = int(sys.argv[1])
+body = ("ok " + os.environ.get("UPSTREAM", "-")).encode()
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self, *a): pass
+print("serving", port, os.environ.get("UPSTREAM", "-"), flush=True)
+http.server.ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
+"""
+
+
+class StackLive(_Live):
+    """Stacks, the request inspector, sleep and wake, porthaven.toml and workspaces on a real server."""
+
+    def _wait(self, cond, seconds=20):
+        for _ in range(int(seconds * 10)):
+            self.h.refresh()
+            if cond():
+                return True
+            time.sleep(0.1)
+        return False
+
+    def _app(self, app_id):
+        return next(a for a in self.get("/api/state")["apps"] if a["id"] == app_id)
+
+    def test_stack_wiring_inspector_sleep_and_wake(self):
+        Path(self.home.name, "serve.py").write_text(SERVE)
+        py = f'"{sys.executable}" -u serve.py'
+        db_port, web_port = free_port(), probe.free_ports(48500, 1)[0]
+        _, db = self.call("POST", "/api/apps", {"name": "Store DB", "slug": "storedb", "cwd": self.home.name, "port": db_port,
+                                                "command": py + " {port}", "health": "/"})
+        _, web = self.call("POST", "/api/apps", {"name": "Store Web", "slug": "storeweb", "cwd": self.home.name, "port": web_port,
+                                                 "command": py + " {port}", "dependsOn": ["storedb"], "env": {"UPSTREAM": "{url:storedb}"}})
+        status, res = self.call("POST", f"/api/apps/{web['id']}/start", {})
+        self.assertEqual((status, res.get("stack")), (200, ["Store DB", "Store Web"]))
+        self.assertTrue(self._wait(lambda: self._app(web["id"])["state"] == "running" and self._app(web["id"])["ports"]),
+                        "the stack did not come up")
+        self.assertEqual(self._app(db["id"])["state"], "running", "the dependency was not started first")
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/")
+        req.add_header("Host", f"storeweb.localhost:{self.port}")
+        with NO_PROXY.open(req, timeout=10) as r:
+            self.assertEqual(r.read().decode(), f"ok http://localhost:{db_port}", "the app did not get its dependency's URL")
+        reqs = self.get(f"/api/apps/{web['id']}/requests")["requests"]
+        self.assertEqual((reqs[-1]["method"], reqs[-1]["path"], reqs[-1]["status"]), ("GET", "/", 200))
+        # sleep after a quiet minute, then wake on the next request
+        self.call("PUT", f"/api/apps/{web['id']}", {"sleepAfter": 1, "wake": True})
+        m = self.h.managed[web["id"]]
+        m.started_at -= 120
+        self.h.last_traffic[web["id"]] = time.time() - 120
+        self.h._sleep_idle_apps()
+        self.assertTrue(self._wait(lambda: self._app(web["id"])["state"] == "sleeping"), self._app(web["id"]))
+        with NO_PROXY.open(req, timeout=40) as r:
+            self.assertEqual(r.status, 200, "the request did not wake the app")
+        self.assertTrue(self._wait(lambda: self._app(web["id"])["state"] == "running"))
+        # workspaces remember what was running
+        _, ws = self.call("POST", "/api/workspaces", {"name": "shop"})
+        self.assertEqual(set(ws["apps"]) >= {db["id"], web["id"]}, True)
+        for a in (web, db):
+            self.call("POST", f"/api/apps/{a['id']}/stop", {})
+        self.assertTrue(self._wait(lambda: self._app(db["id"])["state"] in ("stopped", "exited")))
+        status, res = self.call("POST", f"/api/workspaces/{ws['id']}/restore", {})
+        self.assertEqual(res["starting"], ["Store DB", "Store Web"])
+        self.assertTrue(self._wait(lambda: self._app(web["id"])["state"] == "running"), "the workspace did not come back")
+        for a in (web, db):
+            self.call("POST", f"/api/apps/{a['id']}/stop", {})
+
+    def test_porthaven_toml_up_and_down(self):
+        Path(self.home.name, "serve.py").write_text(SERVE)
+        p1, p2 = probe.free_ports(48700, 2)
+        Path(self.home.name, "porthaven.toml").write_text(f"""
+[apps.backend]
+command = '"{sys.executable}" -u serve.py {{port}}'
+port = {p1}
+health = "/"
+
+[apps.frontend]
+command = '"{sys.executable}" -u serve.py {{port}}'
+port = {p2}
+depends_on = ["backend"]
+env = {{ UPSTREAM = "{{url:backend}}" }}
+""")
+        status, res = self.call("POST", "/api/teamfile/up", {"path": self.home.name})
+        self.assertEqual((status, res["order"]), (200, ["Backend", "Frontend"]), res)
+        ids = res["ids"]
+        self.assertTrue(self._wait(lambda: all(self._app(i)["state"] == "running" and self._app(i)["ports"] for i in ids)))
+        status, again = self.call("POST", "/api/teamfile/import", {"path": self.home.name})
+        self.assertEqual((again["added"], len(again["updated"])), ([], 2), "re-importing must update, not duplicate")
+        status, down = self.call("POST", "/api/teamfile/down", {"path": self.home.name})
+        self.assertEqual(sorted(down["stopped"]), ["Backend", "Frontend"])

@@ -26,6 +26,7 @@ MAX_BODY = 256 * 1024
 
 class Api:
     def __init__(self, porthaven, token):
+        self.local = threading.local()
         self.h = porthaven
         self.token = token
         self.routes = []
@@ -34,7 +35,7 @@ class Api:
         r("GET", r"/api/session", lambda q, b: {"token": self.token})
         r("POST", r"/api/refresh", self.refresh)
         r("POST", r"/api/kill", lambda q, b: self.h.kill(int(b["pid"]), b.get("mode", "process"), bool(b.get("force", True)),
-                                                       bool(b.get("confirm"))))
+                                                       bool(b.get("confirm")), actor=self.actor))
         r("POST", r"/api/restart", lambda q, b: self.h.restart_process(int(b["pid"])))
         r("POST", r"/api/probe/(\d+)", lambda q, b, port: self.h.probe_now(int(port)))
         r("GET", r"/api/ports/(\d+)", lambda q, b, port: self.h.check_port(self._port(port)))
@@ -45,7 +46,8 @@ class Api:
         r("POST", r"/api/apps/from-process", lambda q, b: self.h.app_from_process(int(b["pid"]), b.get("name")))
         r("PUT", r"/api/apps/(\w+)", self.update_app)
         r("DELETE", r"/api/apps/(\w+)", self.delete_app)
-        r("POST", r"/api/apps/(\w+)/start", lambda q, b, i: self.h.start_app(i, b.get("port"), bool(b.get("force")), bool(b.get("takeOver"))))
+        r("POST", r"/api/apps/(\w+)/start", lambda q, b, i: self.h.start_app(i, b.get("port"), bool(b.get("force")), bool(b.get("takeOver")),
+                                                                         actor=self.actor))
         r("POST", r"/api/apps/(\w+)/stop", lambda q, b, i: self.h.stop_app(i))
         r("POST", r"/api/apps/(\w+)/restart", lambda q, b, i: self.h.restart_app(i))
         r("GET", r"/api/apps/(\w+)/logs", self.logs)
@@ -57,9 +59,24 @@ class Api:
         r("POST", r"/api/kill-many", lambda q, b: self.h.kill_many([int(p) for p in b["pids"]][:100], b.get("mode", "process")))
         r("POST", r"/api/groups/(start|stop)", lambda q, b, action: self.h.group_action(str(b["group"]), action))
         r("GET", r"/api/apps/export", lambda q, b: self.h.export_apps())
+        r("GET", r"/api/apps/(\w+)/requests", lambda q, b, i: self.h.app_requests(i))
+        r("GET", r"/api/apps/(\w+)/worktrees", lambda q, b, i: self.h.app_worktrees(i))
+        r("POST", r"/api/apps/(\w+)/worktree", lambda q, b, i: self.h.run_in_worktree(i, b["worktree"], bool(b.get("start", True)), actor=self.actor))
+        r("POST", r"/api/workspaces", lambda q, b: self.h.save_workspace(b.get("name")))
+        r("POST", r"/api/workspaces/(\w+)/restore", lambda q, b, i: self.h.restore_workspace(i, bool(b.get("stopOthers")), actor=self.actor))
+        r("DELETE", r"/api/workspaces/(\w+)", lambda q, b, i: self.h.delete_workspace(i))
+        r("POST", r"/api/teamfile/import", lambda q, b: self.h.import_teamfile(b["path"]))
+        r("POST", r"/api/teamfile/up", lambda q, b: self.h.teamfile_up(b["path"], actor=self.actor))
+        r("POST", r"/api/teamfile/down", lambda q, b: self.h.teamfile_down(b["path"]))
+        r("GET", r"/api/teamfile/export", lambda q, b: self.h.export_teamfile(q.get("group", [None])[0], q.get("folder", [None])[0]))
         r("GET", r"/api/insights", lambda q, b: self.h.insights(q.get("range", ["24h"])[0]))
         r("POST", r"/api/apps/import", lambda q, b: self.h.import_apps(b["apps"] if isinstance(b.get("apps"), list) else []))
         r("POST", r"/api/activity/clear", self.clear_activity)
+
+    @property
+    def actor(self):
+        """Who made the request, when a client says so (the MCP server sends "agent")."""
+        return getattr(self.local, "actor", None)
 
     def route(self, method, pattern, fn):
         self.routes.append((method, re.compile(f"^{pattern}$"), fn))
@@ -95,6 +112,20 @@ class Api:
             out["env"] = {str(k): str(v) for k, v in b["env"].items() if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(k))}
         if "autoRestart" in b:
             out["autoRestart"] = bool(b["autoRestart"])
+        if "dependsOn" in b:
+            deps = b["dependsOn"] or []
+            if isinstance(deps, str):
+                deps = [d.strip() for d in deps.split(",")]
+            out["dependsOn"] = [str(d).strip() for d in deps if str(d).strip()][:20]
+        if "health" in b:
+            h = str(b["health"] or "").strip()
+            if h and not h.startswith("/"):
+                raise ControlError("A health check is a path such as /health.")
+            out["health"] = h
+        if "sleepAfter" in b:
+            out["sleepAfter"] = max(0, min(24 * 60, int(b["sleepAfter"] or 0)))
+        if "wake" in b:
+            out["wake"] = bool(b["wake"])
         if not partial:
             for k in ("name", "cwd", "command"):
                 if not out.get(k):
@@ -164,7 +195,7 @@ class Api:
 
 def make_handler(api, porthaven, port):
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
-    proxy_host = re.compile(rf"^([a-z0-9][a-z0-9-]*)\.localhost:{port}$")
+    proxy_host = re.compile(rf"^([a-z0-9][a-z0-9.-]*)\.localhost:{port}$")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "Porthaven"
@@ -213,6 +244,8 @@ def make_handler(api, porthaven, port):
                 return
             try:
                 body = self._body() if method != "GET" else {}
+                actor = re.sub(r"[^A-Za-z0-9 ()._-]", "", self.headers.get("X-Porthaven-Actor", ""))[:40]
+                api.local.actor = actor or None
                 result = api.dispatch(method, url.path, parse_qs(url.query), body)
                 self._send(200, result if result is not None else {})
             except ControlError as err:
@@ -231,8 +264,11 @@ def make_handler(api, porthaven, port):
 
         def _proxy(self, slug):
             """http://<name>.localhost:<porthaven port>/ → the app's current port. A raw tunnel, so websockets
-            (hot reload) and streaming work too."""
-            target, name = porthaven.proxy_target(slug)
+            (hot reload) and streaming work. Each plain HTTP request gets its own upstream connection, so the
+            request inspector sees every request; an app that sleeps is woken by the request and then served."""
+            target, name, app_id = porthaven.proxy_target(slug)
+            if not target and app_id:
+                target = porthaven.wake_app(app_id)
             if not target or target == port:
                 page = (f"<!doctype html><meta charset=utf-8><title>{html.escape(slug)} · Porthaven</title><body style='font:15px system-ui;"
                         f"background:#080b12;color:#d6deeb;padding:48px'><h2>Nothing called “{html.escape(slug)}” is running.</h2>"
@@ -248,10 +284,19 @@ def make_handler(api, porthaven, port):
             if not upstream:
                 return self._send(502, f"{name or slug} is not accepting connections on port {target}.".encode(), "text/plain")
             upstream.settimeout(None)
+            websocket = "upgrade" in (self.headers.get("Connection") or "").lower()
             head = f"{self.command} {self.path} {self.request_version}\r\n"
-            head += "".join(f"{k}: {v}\r\n" for k, v in self.headers.items())
+            for k, v in self.headers.items():
+                if not websocket and k.lower() in ("connection", "keep-alive"):
+                    continue
+                head += f"{k}: {v}\r\n"
+            if not websocket:
+                head += "Connection: close\r\n"
             head += f"X-Forwarded-Host: {self.headers.get('Host')}\r\nX-Forwarded-Proto: http\r\n\r\n"
             self.close_connection = True
+            started = time.monotonic()
+            entry = {"t": time.time(), "method": self.command, "path": self.path[:300], "status": None, "ms": None,
+                     "bytes": 0, "ws": websocket, "port": target}
             try:
                 upstream.sendall(head.encode("latin-1"))
             except OSError:
@@ -274,16 +319,29 @@ def make_handler(api, porthaven, port):
                         pass
 
             threading.Thread(target=client_to_upstream, daemon=True).start()
+            first = True
             try:
                 while True:
                     chunk = upstream.recv(65536)
                     if not chunk:
                         break
+                    if first:
+                        first = False
+                        m = re.match(rb"HTTP/\d(?:\.\d)? (\d{3})", chunk)
+                        entry["status"] = int(m.group(1)) if m else None
+                        entry["ttfb"] = round((time.monotonic() - started) * 1000)
+                        if websocket:   # record the upgrade now; the socket may stay open for hours
+                            entry["ms"] = entry["ttfb"]
+                            porthaven.record_request(slug, app_id, dict(entry))
+                    entry["bytes"] += len(chunk)
                     self.connection.sendall(chunk)
             except OSError:
                 pass
             finally:
                 upstream.close()
+                if not websocket:
+                    entry["ms"] = round((time.monotonic() - started) * 1000)
+                    porthaven.record_request(slug, app_id, entry)
 
         def do_GET(self):
             if self._proxied():
@@ -330,6 +388,8 @@ def make_handler(api, porthaven, port):
                 return self._send(200, NO_BUILD.encode(), "text/html; charset=utf-8")
             data = target.read_bytes()
             ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+            if target.suffix == ".webmanifest":
+                ctype = "application/manifest+json"
             if target.name == "index.html" and target.parent == WEB:
                 data = data.replace(b"</head>", f'<meta name="porthaven-token" content="{api.token}"></head>'.encode(), 1)
                 ctype = "text/html; charset=utf-8"

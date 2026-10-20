@@ -5,7 +5,7 @@ import { Badge, Button, Field, inputCls, Modal, Spinner, Toggle } from "./ui";
 import { Icon } from "./Icon";
 import { cx, shortPath } from "../util";
 
-export function AppEditor({ app, onClose, onStart, groups = [], porthavenPort }: { app: Partial<App> | null; onClose: () => void; onStart: (a: App) => void; groups?: string[]; porthavenPort?: number }) {
+export function AppEditor({ app, onClose, onStart, groups = [], porthavenPort, apps = [] }: { app: Partial<App> | null; onClose: () => void; onStart: (a: App) => void; groups?: string[]; porthavenPort?: number; apps?: App[] }) {
   const { toast } = useUi();
   const [v, setV] = useState<Partial<App>>({});
   const [envText, setEnvText] = useState("");
@@ -34,7 +34,8 @@ export function AppEditor({ app, onClose, onStart, groups = [], porthavenPort }:
     setErr("");
     const env = Object.fromEntries(envText.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#") && l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim()]));
     const body = { name: v.name, cwd: v.cwd, command: v.command, port: v.port || null, openPath: v.openPath || "/", env, autoRestart: !!v.autoRestart,
-      color: v.color || "", group: (v.group || "").trim(), slug: (v.slug || "").trim().toLowerCase() };
+      color: v.color || "", group: (v.group || "").trim(), slug: (v.slug || "").trim().toLowerCase(),
+      dependsOn: v.dependsOn || [], health: (v.health || "").trim(), sleepAfter: Number(v.sleepAfter || 0), wake: v.wake ?? true };
     try {
       const saved = editing ? await api.updateApp(app.id!, body) : await api.createApp(body);
       toast(<>{editing ? "Saved" : "Added"} <b>{saved.name}</b>.</>, "ok");
@@ -73,6 +74,26 @@ export function AppEditor({ app, onClose, onStart, groups = [], porthavenPort }:
         </Field>
         <Field label="Short name" hint={<>Stable address: <span className="font-mono">http://{(v.slug || slug(v.name || "app"))}.localhost:{porthavenPort || 7475}</span></>}>
           <input className={cx(inputCls, "font-mono text-xs")} value={v.slug || ""} onChange={set("slug")} placeholder={slug(v.name || "my-app")} />
+        </Field>
+        <div className="col-span-2"><Field label="Starts after" hint="Dependencies start first; this app waits until they are up (and healthy). Use {url:name} or {port:name} in the command or environment to reach them.">
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {apps.filter((o) => o.id !== app.id && !o.worktreeOf).length === 0 && <span className="text-xs text-faint">No other saved apps yet.</span>}
+            {apps.filter((o) => o.id !== app.id && !o.worktreeOf).map((o) => {
+              const key = o.slugName || o.id;
+              const on = (v.dependsOn || []).includes(key);
+              return <button type="button" key={o.id} onClick={() => setV({ ...v, dependsOn: on ? (v.dependsOn || []).filter((d) => d !== key) : [...(v.dependsOn || []), key] })}
+                className={cx("rounded-lg border px-2.5 py-1 text-xs transition", on ? "border-accent bg-accent-soft text-accent-ink" : "border-line-2 text-muted hover:text-ink")}>
+                {on ? "✓ " : ""}{o.name} <span className="font-mono text-[10px] opacity-70">{key}</span></button>;
+            })}
+          </div>
+        </Field></div>
+        <Field label="Health check" hint="A path that answers 2xx/3xx when the app is ready, e.g. /health. Empty = the port being open is enough.">
+          <input className={cx(inputCls, "font-mono text-xs")} value={v.health || ""} onChange={set("health")} placeholder="/health" />
+        </Field>
+        <Field label="Sleep when quiet" hint="Stops after this long without traffic; the next request to its stable address starts it again.">
+          <select className={inputCls} value={v.sleepAfter || 0} onChange={(e) => setV({ ...v, sleepAfter: Number(e.target.value) })}>
+            {[[0, "Never"], [15, "15 minutes"], [30, "30 minutes"], [60, "1 hour"], [120, "2 hours"], [480, "8 hours"]].map(([m, l]) => <option key={m} value={m}>{l}</option>)}
+          </select>
         </Field>
         <Field label="Open path" hint="Where “Open” goes, e.g. /docs"><input className={cx(inputCls, "font-mono text-xs")} value={v.openPath || ""} onChange={set("openPath")} /></Field>
         <Field label="Colour"><div className="flex gap-1.5 pt-1">{["", "#2dd4bf", "#60a5fa", "#a78bfa", "#f472b6", "#fbbf24", "#34d399", "#fb923c", "#f87171"].map((c) => (

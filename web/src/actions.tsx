@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { api, ApiError, type App, type Listener } from "./api";
+import { api, ApiError, type App, type Listener, type Workspace } from "./api";
 import { useUi } from "./components/ui";
 import { copy, duration, mb, url } from "./util";
 
@@ -252,7 +252,61 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
       }
     }
 
-    return { killMany, group, exportApps, importApps, kill, restart, open, copyUrl, copyText, meta, saveApp, reveal, probe, startApp, stopApp, restartApp, deleteApp, fail, toast };
+    async function saveWorkspace(name: string) {
+      try {
+        const ws = await api.saveWorkspace(name);
+        toast(<>Saved workspace <b>{ws.name}</b> ({ws.apps.length} apps).</>, "ok");
+        return true;
+      } catch (e) { fail(e); return false; }
+    }
+
+    async function restoreWorkspace(w: Workspace, stopOthers: boolean) {
+      if (stopOthers && !(await confirm({ title: `Switch to “${w.name}”?`, confirm: "Switch", danger: true,
+        body: <p>Saved apps that are not part of this workspace are stopped, then the workspace starts, dependencies first.</p> }))) return;
+      try {
+        const r = await api.restoreWorkspace(w.id, stopOthers);
+        toast(<>Restoring <b>{w.name}</b>: {r.starting.join(" → ")}{r.stopped.length ? ` · stopped ${r.stopped.length}` : ""}</>, "ok");
+      } catch (e) { fail(e); }
+    }
+
+    async function deleteWorkspace(w: Workspace) {
+      if (!(await confirm({ title: `Delete workspace “${w.name}”?`, confirm: "Delete", danger: true, body: <p>Only the saved list is removed; no app is stopped.</p> }))) return;
+      try { await api.deleteWorkspace(w.id); toast(`Deleted ${w.name}.`, "ok"); } catch (e) { fail(e); }
+    }
+
+    async function importToml(path: string, up: boolean) {
+      try {
+        const r = up ? await api.upToml(path) : await api.importToml(path);
+        const claims = Object.entries(r.claims || {});
+        toast(<>{up ? "Starting" : "Imported"} from <span className="font-mono">{r.file.split(/[\\/]/).slice(-2).join("/")}</span>
+          {"order" in r ? `: ${(r as { order: string[] }).order.join(" → ")}` : `: ${(r as { added: string[] }).added.length} added, ${(r as { updated: string[] }).updated.length} updated`}
+          {claims.length ? ` · port ${claims[0][0]} is also claimed by ${claims[0][1].join(", ")}` : ""}</>, claims.length ? "warn" : "ok");
+        return true;
+      } catch (e) { fail(e); return false; }
+    }
+
+    async function exportToml(group: string) {
+      try {
+        const r = await api.exportToml(group);
+        const blob = new Blob([r.toml], { type: "text/plain" });
+        const el = document.createElement("a");
+        el.href = URL.createObjectURL(blob);
+        el.download = "porthaven.toml";
+        el.click();
+        URL.revokeObjectURL(el.href);
+        toast(<>Saved <b>porthaven.toml</b> for {group}. Put it in <span className="font-mono">{r.base}</span> and commit it.</>, "ok");
+      } catch (e) { fail(e); }
+    }
+
+    async function runInWorktree(a: App, path: string) {
+      try {
+        const r = await api.runInWorktree(a.id, path);
+        toast(<>Starting <b>{r.app.name}</b> on :{r.app.port} · <span className="font-mono">{r.stableUrl}</span></>, "ok");
+        return r;
+      } catch (e) { fail(e); return null; }
+    }
+
+    return { saveWorkspace, restoreWorkspace, deleteWorkspace, importToml, exportToml, runInWorktree, killMany, group, exportApps, importApps, kill, restart, open, copyUrl, copyText, meta, saveApp, reveal, probe, startApp, stopApp, restartApp, deleteApp, fail, toast };
   }, [toast, confirm, onEditApp]);
 }
 

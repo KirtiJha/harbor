@@ -116,6 +116,9 @@ const EV: Record<Activity["type"], { icon: string; tone: string; verb: string }>
   exited: { icon: "stop", tone: "text-muted", verb: "exited" },
   crashed: { icon: "warn", tone: "text-bad", verb: "crashed" },
   conflict: { icon: "warn", tone: "text-warn", verb: "could not get" },
+  slept: { icon: "moon", tone: "text-violet-400", verb: "went to sleep on" },
+  woke: { icon: "bolt", tone: "text-violet-300", verb: "woke up on" },
+  exposed: { icon: "warn", tone: "text-bad", verb: "is dangerously exposed on" },
 };
 
 export function ActivityFeed({ items, compact, onClear }: { items: Activity[]; compact?: boolean; onClear?: () => void }) {

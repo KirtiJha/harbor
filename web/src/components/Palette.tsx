@@ -40,6 +40,9 @@ export function Palette({ open, onClose, snap, actions, nav }: {
       c.push({ id: `logs-${a.id}`, label: `Show output of ${a.name}`, sub: a.cwd, icon: "terminal", group: "Apps", run: () => { nav.go("apps"); nav.app(a.id); } });
       if (live) c.push({ id: `restart-${a.id}`, label: `Restart ${a.name}`, icon: "restart", group: "Apps", run: () => void actions.restartApp(a) });
     }
+    for (const w of snap.workspaces || []) {
+      c.push({ id: `ws-${w.id}`, label: `Restore workspace ${w.name}`, sub: `${w.apps.length} apps`, icon: "layers", group: "Workspaces", run: () => void actions.restoreWorkspace(w, false) });
+    }
     c.push(
       { id: "nav-ports", label: "Go to Ports", icon: "layers", group: "Go", run: () => nav.go("ports") },
       { id: "nav-apps", label: "Go to Apps", icon: "play", group: "Go", run: () => nav.go("apps") },
@@ -121,7 +124,7 @@ export function Help({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 }
 
-export function SettingsModal({ open, onClose, settings, onTheme, theme }: { open: boolean; onClose: () => void; settings: Settings; onTheme: (t: string) => void; theme: string }) {
+export function SettingsModal({ open, onClose, settings, onTheme, theme, cli }: { open: boolean; onClose: () => void; settings: Settings; onTheme: (t: string) => void; theme: string; cli?: string }) {
   const set = (s: Partial<Settings>) => void api.settings(s);
   const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "denied");
   return (
@@ -157,6 +160,7 @@ export function SettingsModal({ open, onClose, settings, onTheme, theme }: { ope
           {perm === "granted" ? <Toggle checked={settings.notify} onChange={(b) => set({ notify: b })} /> :
             <button className="text-xs font-semibold text-accent hover:underline" onClick={() => void Notification.requestPermission().then(setPerm)}>{perm === "denied" ? "Blocked in browser settings" : "Allow notifications"}</button>}
         </Row>
+        <AgentSetup cli={cli || "porthaven"} />
         <p className="border-t border-line pt-3 text-[11px] text-faint">Saved in ~/.porthaven/state.json. Porthaven listens on 127.0.0.1 only, and every change needs this page’s session token.</p>
       </div>
     </Modal>
@@ -172,3 +176,50 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
+
+
+function Copyable({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <div className="group relative">
+      <pre className="overflow-x-auto rounded-lg border border-line bg-panel-2/60 px-3 py-2 pr-14 font-mono text-[11px] text-ink-2">{text}</pre>
+      <button className="absolute right-2 top-1.5 rounded-md bg-panel px-1.5 py-0.5 text-[10px] text-muted hover:text-ink"
+        onClick={() => { void navigator.clipboard.writeText(text); setDone(true); window.setTimeout(() => setDone(false), 1200); }}>{done ? "copied" : "copy"}</button>
+    </div>
+  );
+}
+
+function AgentSetup({ cli }: { cli: string }) {
+  const [tab, setTab] = useState<"claude" | "cursor" | "other">("claude");
+  const install = (window as unknown as { __phInstall?: { prompt: () => void } }).__phInstall;
+  const cursor = JSON.stringify({ mcpServers: { porthaven: { command: cli, args: ["mcp"] } } }, null, 2);
+  return (
+    <div className="space-y-4 border-t border-line pt-4">
+      <div>
+        <div className="flex items-center gap-2 font-medium text-ink"><Icon name="sparkle" size={14} className="text-accent" />Connect a coding agent</div>
+        <p className="mt-0.5 text-xs text-muted">Agents can then list ports, start apps with their dependencies, read logs, run a worktree on its own port and free ports, with the same guard rails as you.</p>
+        <div className="mt-2 flex gap-1 text-xs">
+          {([["claude", "Claude Code"], ["cursor", "Cursor / Windsurf"], ["other", "Other MCP clients"]] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setTab(k)} className={cx("rounded-md px-2 py-1", tab === k ? "bg-accent-soft text-accent-ink" : "text-muted hover:text-ink")}>{l}</button>
+          ))}
+        </div>
+        <div className="mt-2">
+          {tab === "claude" && <Copyable text={`claude mcp add porthaven -- ${cli} mcp`} />}
+          {tab === "cursor" && <><p className="mb-1 text-[11px] text-muted">Add to ~/.cursor/mcp.json (Windsurf: ~/.codeium/windsurf/mcp_config.json):</p><Copyable text={cursor} /></>}
+          {tab === "other" && <><p className="mb-1 text-[11px] text-muted">A stdio server: command and argument</p><Copyable text={`${cli} mcp`} /></>}
+        </div>
+      </div>
+      <div>
+        <div className="flex items-center gap-2 font-medium text-ink"><Icon name="grid" size={14} className="text-accent" />Install as an app</div>
+        <p className="mt-0.5 text-xs text-muted">Its own window and dock icon, with a badge when a watched port is down or something is dangerously exposed.</p>
+        {install ? <button className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-[#04201c]" onClick={() => install.prompt()}>Install Porthaven</button>
+          : <p className="mt-1 text-[11px] text-faint">In Chrome or Edge: the install icon in the address bar, or ⋮ → Cast, save and share → Install.</p>}
+      </div>
+      <div>
+        <div className="flex items-center gap-2 font-medium text-ink"><Icon name="bolt" size={14} className="text-accent" />Menu bar</div>
+        <p className="mt-0.5 text-xs text-muted">With SwiftBar or xbar (macOS) or Argos (GNOME):</p>
+        <Copyable text={`ln -s "${cli.replace(/bin[\\/]porthaven(\.cmd)?$/, "")}extras/menubar/porthaven.10s.py" "$HOME/Library/Application Support/SwiftBar/Plugins/"`} />
+      </div>
+    </div>
+  );
+}

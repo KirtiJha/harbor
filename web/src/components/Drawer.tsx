@@ -43,7 +43,8 @@ export function Drawer({ l, snap, actions, onClose, onOpenApp }: { l: Listener; 
               {l.framework && <Badge tone="accent">{l.framework.label}</Badge>}
             </div>
             <h2 className="mt-1 truncate text-[15px] font-semibold text-ink">{l.title}</h2>
-            {l.project && <p className="truncate text-xs text-muted">{l.project.repo && l.project.repo !== l.project.name ? `${l.project.repo} › ` : ""}{l.project.name}</p>}
+            {l.project && <p className="truncate text-xs text-muted">{l.project.repo && l.project.repo !== l.project.name ? `${l.project.repo} › ` : ""}{l.project.name}
+              {l.project.git?.branch && <span className="ml-2 text-violet-400">⎇ {l.project.git.branch}{l.project.git.worktree ? " (worktree)" : ""}</span>}</p>}
           </div>
           <IconButton icon="close" title="Close (Esc)" onClick={onClose} />
         </div>
@@ -57,6 +58,15 @@ export function Drawer({ l, snap, actions, onClose, onOpenApp }: { l: Listener; 
       </div>
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        {l.exposureRisk && (
+          <div className={cx("rounded-xl border px-4 py-3", l.exposureRisk.level === "medium" ? "border-warn/30 bg-warn/5" : "border-bad/40 bg-bad/10")}>
+            <div className={cx("flex items-center gap-2 text-sm font-semibold", l.exposureRisk.level === "medium" ? "text-warn" : "text-bad")}>
+              <Icon name="warn" size={15} />{l.exposureRisk.title}<span className="ml-auto rounded-md bg-black/20 px-1.5 text-[10px] uppercase tracking-wide">{l.exposureRisk.level}</span>
+            </div>
+            <p className="mt-1 text-xs text-ink-2">{l.exposureRisk.why}</p>
+            <p className="mt-1.5 text-xs text-muted"><b className="text-ink-2">Fix:</b> {l.exposureRisk.fix}</p>
+          </div>
+        )}
         <Section title="HTTP" icon="globe" right={
           <button className="text-[11px] font-medium text-accent hover:underline disabled:opacity-50" disabled={checking}
             onClick={async () => { setChecking(true); await actions.probe(l); setChecking(false); }}>{checking ? <Spinner size={10} /> : "Check again"}</button>}>

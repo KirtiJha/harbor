@@ -85,6 +85,15 @@ export function InsightsView({ snap, actions, onOpenPort, onEditApp }: {
   /* ---------------- suggestions */
   const tips = useMemo(() => {
     const out: { tone: "warn" | "info" | "bad" | "ok"; icon: string; title: string; body: string; action?: { label: string; run: () => void } }[] = [];
+    for (const l of snap.listeners.filter((x) => x.exposureRisk && x.exposureRisk.level !== "medium")) {
+      out.push({ tone: "bad", icon: "warn", title: `:${l.port} ${l.exposureRisk!.title}`, body: `${l.exposureRisk!.why} ${l.exposureRisk!.fix}`,
+        action: { label: "Review", run: () => onOpenPort(l) } });
+    }
+    const sleepy = snap.listeners.filter((l) => l.idleFor && l.appId).map((l) => snap.apps.find((a) => a.id === l.appId)).filter((a): a is App => !!a && !a.sleepAfter);
+    for (const a of sleepy.slice(0, 2)) {
+      out.push({ tone: "info", icon: "moon", title: `Let ${a.name} sleep when quiet`, body: "It has been idle for hours. With sleep on, it stops by itself and wakes on the next request to its stable address.",
+        action: { label: "Turn on", run: () => onEditApp({ ...a, sleepAfter: 60 }) } });
+    }
     const idle = snap.listeners.filter((l) => l.idleFor);
     if (idle.length) out.push({ tone: "warn", icon: "moon", title: `${idle.length} forgotten server${idle.length > 1 ? "s" : ""} holding ${mb(snap.summary.idleMemMb)}`,
       body: idle.map((l) => `:${l.port} ${l.title}`).join(", "), action: { label: "Stop them", run: () => void actions.killMany(idle, "app", `Stop ${idle.length} idle server${idle.length > 1 ? "s" : ""}?`) } });

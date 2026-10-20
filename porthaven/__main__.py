@@ -167,7 +167,8 @@ def cmd_up(args):
                 color = C["g"] if a["state"] in ("running", "external") else C["r"] if a["state"] == "crashed" else C["dim"]
                 print(f"  {color}{a['state']:<9}{C['x']} {a['name']:<24} {':' + str(a['ports'][0]) if a['ports'] else '':<7}{where}")
         if all(a["state"] in ("running", "external") and a["ports"] for a in st.values()):
-            print(f"{C['g']}All {len(st)} up.{C['x']}  Dashboard: http://localhost:7475/")
+            from .client import base_url
+            print(f"{C['g']}All {len(st)} up.{C['x']}  Dashboard: {base_url().replace('127.0.0.1', 'localhost')}/")
             return 0
         if any(a["state"] == "crashed" for a in st.values()):
             print(f"{C['r']}Something crashed. See its output in the dashboard (Apps) or ~/.porthaven/logs.{C['x']}")

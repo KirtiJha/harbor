@@ -195,11 +195,11 @@ export default function App() {
         {tab === "insights" && <InsightsView snap={snap} actions={actions} onOpenPort={openPort} onEditApp={setEditing} />}
       </main>
 
-      <AppEditor app={editing} groups={[...new Set(snap.apps.map((a) => a.group).filter(Boolean) as string[])]} porthavenPort={snap.me.port} onClose={() => setEditing(null)} onStart={(a) => { setTab("apps"); setAppSel(a.id); void actions.startApp(a); }} />
+      <AppEditor app={editing} groups={[...new Set(snap.apps.map((a) => a.group).filter(Boolean) as string[])]} porthavenPort={snap.me.port} apps={snap.apps} onClose={() => setEditing(null)} onStart={(a) => { setTab("apps"); setAppSel(a.id); void actions.startApp(a); }} />
       <DiscoverModal open={discover} onClose={() => setDiscover(false)} home={snap.me.home} onPick={(a) => { setDiscover(false); setEditing(a); }} />
       <Palette open={palette} onClose={() => setPalette(false)} snap={snap} actions={actions} nav={nav} />
       <Help open={help} onClose={() => setHelp(false)} />
-      <SettingsModal open={settings} onClose={() => setSettings(false)} settings={snap.settings} theme={theme} onTheme={setTheme} />
+      <SettingsModal open={settings} onClose={() => setSettings(false)} settings={snap.settings} theme={theme} onTheme={setTheme} cli={snap.me.cli} />
     </div>
   );
 }

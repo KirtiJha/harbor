@@ -405,7 +405,8 @@ class Porthaven:
         return {
             "version": __version__, "scannedAt": time.time(), "scanMs": self.scan_ms, "error": self.error,
             "me": {"pid": self.pid, "port": self.port, "startedAt": self.started_at, "user": os.environ.get("USER"),
-                   "home": str(Path.home()), "docker": bool(shutil.which("docker")), "lanIp": self.lan_ip},
+                   "home": str(Path.home()), "docker": bool(shutil.which("docker")), "lanIp": self.lan_ip,
+                   "cli": str(Path(__file__).resolve().parent.parent / "bin" / ("porthaven.cmd" if system.IS_WINDOWS else "porthaven"))},
             "listeners": rows, "apps": apps, "settings": self.store.settings,
             "summary": {"listening": len({r["port"] for r in rows}), "dev": len({r["port"] for r in dev}),
                         "projects": len(projects), "exposed": len({r["port"] for r in rows if r["exposure"] == "network"}),
@@ -810,24 +811,38 @@ class Porthaven:
         return False, f"{app['name']} was not ready within {int(timeout)} s"
 
     def _start_stack(self, order, ports=None, take_over=False, actor=None):
+        """Start `order` (dependencies first). Wait for an app's health only when a later app needs it, and when an
+        app fails, skip just the apps that depend on it."""
         ports = ports or {}
+        apps, slugs = self.store.apps(), self.app_slugs()
+        deps = {a["id"]: {d["id"] for d in (stacks.resolve(apps, slugs, r) for r in a.get("dependsOn") or []) if d} for a in order}
+        needed = {d for ds in deps.values() for d in ds}
+        failed, ok_all = {}, True
         for app in order:
-            if self.is_running(app["id"]):
+            blocked = [failed[d] for d in deps[app["id"]] if d in failed]
+            if blocked:
+                failed[app["id"]] = app["name"]
+                self._stack_event(app, "crashed", f"not started: it needs {', '.join(blocked)}", "error")
+                ok_all = False
                 continue
-            try:
-                self._launch(app, ports.get(app["id"]), take_over=take_over, actor=actor)
-            except ControlError as err:
-                self._stack_event(app, "crashed", f"could not start: {err}", "error")
-                return False
-            if app is order[-1]:
-                break
-            self.refresh()
-            ok, why = self.wait_ready(app)
-            if not ok:
-                self._stack_event(app, "crashed", f"{why}; dependants were not started", "error")
-                return False
-            self._stack_event(app, "ready", "healthy" + (f" ({app['health']})" if app.get("health") else ""), "info")
-        return True
+            if not self.is_running(app["id"]):
+                try:
+                    self._launch(app, ports.get(app["id"]), take_over=take_over, actor=actor)
+                except ControlError as err:
+                    failed[app["id"]] = app["name"]
+                    self._stack_event(app, "crashed", f"could not start: {err}", "error")
+                    ok_all = False
+                    continue
+            if app["id"] in needed:
+                self.refresh()
+                ok, why = self.wait_ready(app)
+                if not ok:
+                    failed[app["id"]] = app["name"]
+                    self._stack_event(app, "crashed", f"{why}; apps that need it were not started", "error")
+                    ok_all = False
+                    continue
+                self._stack_event(app, "ready", "healthy" + (f" ({app['health']})" if app.get("health") else ""), "info")
+        return ok_all
 
     def _stack_event(self, app, kind, detail, level):
         self.store.add_activity([{"id": f"{time.time():.6f}-stack-{app['id']}", "ts": time.time(), "type": kind,

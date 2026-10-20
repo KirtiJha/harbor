@@ -3,7 +3,9 @@ export type Probe = {
   contentType?: string | null; location?: string | null; title?: string | null; poweredBy?: string; ms?: number; error?: string;
 };
 
-export type Project = { name: string; root: string; repo: string | null; path: string; sub: string | null };
+export type GitInfo = { branch: string | null; worktree: boolean; root: string; repo: string } | null;
+export type Project = { name: string; root: string; repo: string | null; path: string; sub: string | null; git?: GitInfo };
+export type ExposureRisk = { level: "critical" | "high" | "medium"; title: string; why: string; fix: string } | null;
 
 export type Kind = "dev" | "service" | "database" | "app" | "system" | "tool" | "other";
 export type Risk = null | "self" | "foreign" | "system" | "app";
@@ -20,16 +22,19 @@ export type Listener = {
   workers?: { pid: number; display: string; cpu: number | null; memMb: number | null }[];
   health: { ms: (number | null)[]; status: number[]; up: number; n: number } | null;
   lastActive: number | null; idleFor: number | null; lanUrl: string | null; stableUrl: string | null;
+  exposureRisk: ExposureRisk;
 };
 
 export type PortMeta = { note?: string; label?: string; pinned?: boolean; watched?: boolean; color?: string };
 
-export type AppState = "running" | "starting" | "stopped" | "exited" | "crashed" | "external";
+export type AppState = "running" | "starting" | "stopped" | "exited" | "crashed" | "external" | "sleeping";
 
 export type App = {
   id: string; name: string; cwd: string; command: string; port?: number | null; env?: Record<string, string>;
   openPath?: string; group?: string; color?: string; autoRestart?: boolean; createdAt?: number; slug?: string;
   stableUrl?: string | null; slugName?: string;
+  dependsOn?: string[]; health?: string; sleepAfter?: number; wake?: boolean; branch?: string; worktreeOf?: string;
+  source?: { file: string; key: string };
   state: AppState; ports: number[]; pids: number[]; drift: boolean;
   conflict: { pid: number; title: string; command: string; risk: Risk } | null;
   run: { pid: number; status: string; exitCode: number | null; startedAt: number; endedAt: number | null; port: number | null; command: string; lines: number } | null;
@@ -37,7 +42,7 @@ export type App = {
 };
 
 export type Activity = {
-  id: string; ts: number; type: "opened" | "closed" | "killed" | "started" | "stopped" | "exited" | "crashed" | "ready" | "conflict";
+  id: string; ts: number; type: "opened" | "closed" | "killed" | "started" | "stopped" | "exited" | "crashed" | "ready" | "conflict" | "slept" | "woke" | "exposed";
   framework?: string | null; kind?: string; ranFor?: number | null; memMb?: number | null;
   port?: number | null; pid?: number; title: string; project?: string | null; level: "info" | "warn" | "error";
   detail?: string; notify?: boolean; appId?: string;
@@ -50,10 +55,10 @@ export type Settings = {
 
 export type Snapshot = {
   version: string; scannedAt: number; scanMs: number | null; error: string | null;
-  me: { pid: number; port: number; startedAt: number; user: string; home: string; docker: boolean; lanIp: string | null };
-  listeners: Listener[]; apps: App[]; settings: Settings; activity: Activity[];
+  me: { pid: number; port: number; startedAt: number; user: string; home: string; docker: boolean; lanIp: string | null; cli?: string };
+  listeners: Listener[]; apps: App[]; settings: Settings; activity: Activity[]; workspaces: Workspace[];
   summary: { listening: number; dev: number; projects: number; exposed: number; system: number; appsRunning: number;
-    cpu: number; memMb: number; watchedDown: number[]; idle: number; idleMemMb: number };
+    cpu: number; memMb: number; watchedDown: number[]; idle: number; idleMemMb: number; critical: number; portClaims: Record<string, string[]> };
 };
 
 export type KillResult = { signalled: number[]; exited: number[]; killed: number[]; survivors: number[]; errors: Record<string, string>; mode: string };
@@ -62,6 +67,9 @@ export type ProcNode = { pid: number; ppid: number; args: string; display: strin
 export type ProcessDetail = { process: ProcNode; ancestors: ProcNode[]; root: ProcNode | null; tree: ProcNode[]; cwd: string | null };
 export type Discovered = { name: string; script: string; command: string; detail: string; port: number | null; type: string; cwd: string; rel: string; saved: boolean };
 
+export type Workspace = { id: string; name: string; apps: string[]; createdAt: number };
+export type ProxyRequest = { t: number; method: string; path: string; status: number | null; ms: number | null; ttfb?: number; bytes: number; ws: boolean; port: number };
+export type Worktree = { path: string; branch: string | null; head: string | null; main: boolean; appCwd: string; current: boolean; app: { id: string; name: string } | null };
 export type Sample = { ts: number; ports: number; dev: number; memMb: number; cpu: number; conns: number; idle: number; exposed: number; apps: number; byProject: Record<string, number> };
 export type Insights = {
   range: string; seconds: number; now: number; porthavenStarted: number; samples: Sample[]; activity: Activity[];
@@ -130,6 +138,15 @@ export const api = {
   group: (group: string, action: "start" | "stop") => request<{ group: string; results: Record<string, string> }>("POST", `/api/groups/${action}`, { group }),
   exportApps: () => request<{ apps: Partial<App>[] }>("GET", "/api/apps/export"),
   importApps: (apps: unknown[]) => request<{ added: string[]; skipped: { app: unknown; why: string }[] }>("POST", "/api/apps/import", { apps }),
+  requests: (id: string) => request<{ slug: string; requests: ProxyRequest[] }>("GET", `/api/apps/${id}/requests`),
+  worktrees: (id: string) => request<{ repo: string; branch: string; worktrees: Worktree[] }>("GET", `/api/apps/${id}/worktrees`),
+  runInWorktree: (id: string, worktree: string) => request<{ app: App; stableUrl: string }>("POST", `/api/apps/${id}/worktree`, { worktree, start: true }),
+  saveWorkspace: (name: string) => request<Workspace>("POST", "/api/workspaces", { name }),
+  restoreWorkspace: (id: string, stopOthers: boolean) => request<{ starting: string[]; stopped: string[] }>("POST", `/api/workspaces/${id}/restore`, { stopOthers }),
+  deleteWorkspace: (id: string) => request<unknown>("DELETE", `/api/workspaces/${id}`),
+  importToml: (path: string) => request<{ file: string; added: string[]; updated: string[]; claims: Record<string, string[]> }>("POST", "/api/teamfile/import", { path }),
+  upToml: (path: string) => request<{ file: string; order: string[]; claims: Record<string, string[]> }>("POST", "/api/teamfile/up", { path }),
+  exportToml: (group?: string) => request<{ base: string; toml: string }>("GET", `/api/teamfile/export${group ? `?group=${encodeURIComponent(group)}` : ""}`),
   insights: (range: string) => request<Insights>("GET", `/api/insights?range=${range}`),
   settings: (s: Partial<Settings>) => request<Settings>("PUT", "/api/settings", s),
   clearActivity: () => request<unknown>("POST", "/api/activity/clear", {}),

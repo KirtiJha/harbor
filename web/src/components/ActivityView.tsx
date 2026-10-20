@@ -24,6 +24,9 @@ export const EVENT: Record<Activity["type"], { label: string; color: string; ico
   killed: { label: "Stopped from Porthaven", color: "#fb923c", icon: "stop", verb: "stopped from Porthaven" },
   crashed: { label: "Crashed", color: "#f87171", icon: "warn", verb: "crashed" },
   conflict: { label: "Port conflict", color: "#fbbf24", icon: "warn", verb: "could not get" },
+  slept: { label: "Slept", color: "#a78bfa", icon: "moon", verb: "went to sleep on" },
+  woke: { label: "Woke", color: "#c4b5fd", icon: "bolt", verb: "woke up for a request on" },
+  exposed: { label: "Exposed", color: "#ef4444", icon: "warn", verb: "is dangerously exposed on" },
 };
 const TYPES = Object.keys(EVENT) as Activity["type"][];
 

@@ -235,7 +235,12 @@ function Row({ l, idx, active, selected, dense, cpuMax, flash, actions, onClick,
           <span className="truncate text-sm font-medium text-ink">{l.title}</span>
           {l.framework && l.framework.label !== l.title && <Badge>{l.framework.label}</Badge>}
           {l.probe?.status && l.probe.status >= 300 && <Badge tone={l.probe.status >= 500 ? "bad" : l.probe.status >= 400 ? "warn" : "info"}>{l.probe.status}</Badge>}
-          {l.exposure === "network" && <Badge tone="warn" title={`Listening on ${l.addresses.join(", ")}: other devices on your network can reach it`}><Icon name="network" size={11} />network</Badge>}
+          {l.exposureRisk && l.exposureRisk.level !== "medium" ? (
+            <Badge tone="bad" className={l.exposureRisk.level === "critical" ? "animate-pulse" : ""} title={`${l.exposureRisk.title}. ${l.exposureRisk.fix}`}><Icon name="warn" size={11} />{l.exposureRisk.level}</Badge>
+          ) : l.exposure === "network" && <Badge tone="warn" title={`Listening on ${l.addresses.join(", ")}: other devices on your network can reach it`}><Icon name="network" size={11} />network</Badge>}
+          {l.project?.git?.branch && l.project.git.branch !== "main" && l.project.git.branch !== "master" && (
+            <Badge tone="violet" title={l.project.git.worktree ? `git worktree of ${l.project.git.repo}` : `branch of ${l.project.git.repo}`}>⎇ {l.project.git.branch}{l.project.git.worktree ? " · wt" : ""}</Badge>
+          )}
           {l.managed && <Badge tone="accent" title="Started by Porthaven; its output is in Apps">porthaven</Badge>}
           {l.meta.watched && <Icon name="bell" size={12} className="shrink-0 text-info" />}
           {l.idleFor && <Badge tone="violet" title="No connections and no CPU for this long: probably forgotten"><Icon name="moon" size={11} />idle {duration(l.idleFor)}</Badge>}

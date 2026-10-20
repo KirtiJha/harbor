@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cx } from "../util";
 import { Icon } from "./Icon";
 
@@ -121,24 +122,44 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
 export type MenuItem = { label: string; icon?: string; onClick: () => void; danger?: boolean; hint?: string; disabled?: boolean } | "sep";
 
 export function Menu({ items, trigger, align = "right" }: { items: MenuItem[]; trigger: (open: () => void) => ReactNode; align?: "left" | "right" }) {
-  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left?: number; right?: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const open = pos !== null;
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !pop.current?.contains(e.target as Node) && setPos(null);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setPos(null);
+    const away = () => setPos(null);
+    // Live panels (logs, requests) scroll by themselves; only a scroll that moves the trigger closes the menu.
+    const scrolled = (e: Event) => e.target instanceof Node && e.target.contains(ref.current) && setPos(null);
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", esc);
-    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", esc); };
+    window.addEventListener("resize", away);
+    window.addEventListener("scroll", scrolled, true);
+    return () => {
+      window.removeEventListener("mousedown", close); window.removeEventListener("keydown", esc);
+      window.removeEventListener("resize", away); window.removeEventListener("scroll", scrolled, true);
+    };
   }, [open]);
+  const toggle = () => {
+    if (open || !ref.current) return setPos(null);
+    // Drawn in a portal at a fixed position, so cards with overflow-hidden cannot clip it; opens upwards near the bottom.
+    const r = ref.current.getBoundingClientRect();
+    const up = window.innerHeight - r.bottom < 40 + items.length * 32 && r.top > window.innerHeight / 2;
+    setPos({
+      ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
+      ...(align === "right" && r.right > 240 ? { right: window.innerWidth - r.right } : { left: Math.max(8, Math.min(r.left, window.innerWidth - 240)) }),
+    });
+  };
   return (
     <div className="relative" ref={ref} onClick={(e) => e.stopPropagation()}>
-      {trigger(() => setOpen((o) => !o))}
-      {open && (
-        <div className={cx("card pop absolute z-40 mt-1 min-w-[230px] p-1", align === "right" ? "right-0" : "left-0")}>
+      {trigger(toggle)}
+      {open && createPortal(
+        <div ref={pop} style={pos} onClick={(e) => e.stopPropagation()} className="card pop fixed z-[60] min-w-[230px] p-1 shadow-xl">
           {items.map((it, i) => it === "sep" ? <div key={i} className="my-1 border-t border-line" /> : (
             <button key={i} type="button" disabled={it.disabled}
-              onClick={() => { setOpen(false); it.onClick(); }}
+              onClick={() => { setPos(null); it.onClick(); }}
               className={cx("flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] transition disabled:opacity-40",
                 it.danger ? "text-bad hover:bg-bad/10" : "text-ink-2 hover:bg-panel-2 hover:text-ink")}>
               {it.icon && <Icon name={it.icon} size={15} className="shrink-0 opacity-80" />}
@@ -146,8 +167,7 @@ export function Menu({ items, trigger, align = "right" }: { items: MenuItem[]; t
               {it.hint && <span className="text-[11px] text-faint">{it.hint}</span>}
             </button>
           ))}
-        </div>
-      )}
+        </div>, document.body)}
     </div>
   );
 }

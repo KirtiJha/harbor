@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-20
+
 ### Added
 - **Windows support** through netstat, PowerShell and taskkill, alongside macOS and Linux. CI covers all three.
 - **Activity view:** a timeline with one lane per port, markers for launches, crashes and conflicts, events over
@@ -28,3 +30,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Stable names (`<app>.localhost:7475`), forgotten-server detection, bulk stop, watch and notifications.
 - Project discovery, export and import, command palette, CLI (`ls`, `who`, `kill`, `free`, `open`, `service`).
 - Landing page at `/welcome`.
+
+[Unreleased]: https://github.com/KirtiJha/harbor/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/KirtiJha/harbor/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/KirtiJha/harbor/releases/tag/v1.0.0

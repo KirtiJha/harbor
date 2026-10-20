@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-20
+
+### Fixed
+- **Linux:** ports are read from `/proc/net/tcp` and `/proc/<pid>` instead of `lsof`, which listed no sockets on
+  some distributions.
+- **Windows:** app output written with `\r\n` line endings no longer shows as empty lines.
+- The server answers immediately and runs its first scan in the background, so a slow first scan can't time out
+  the browser.
+
 ## [1.1.0] - 2026-10-20
 
 ### Added
@@ -31,6 +40,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Project discovery, export and import, command palette, CLI (`ls`, `who`, `kill`, `free`, `open`, `service`).
 - Landing page at `/welcome`.
 
-[Unreleased]: https://github.com/KirtiJha/harbor/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/KirtiJha/harbor/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/KirtiJha/harbor/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/KirtiJha/harbor/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/KirtiJha/harbor/releases/tag/v1.0.0

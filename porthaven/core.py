@@ -503,18 +503,30 @@ class Porthaven:
         app = self.store.app(app_id)
         if not app or not (app.get("wake", True) and (app.get("sleepAfter") or app.get("wake"))):
             return None
-        if not self.is_running(app_id):
+        if self.is_running(app_id):
+            ok, _ = self.wait_ready(app, timeout)
+        else:
             self.store.add_activity([{"id": f"{time.time():.6f}-woke-{app_id}", "ts": time.time(), "type": "woke", "port": app.get("port"),
                                       "title": app["name"], "appId": app_id, "level": "info", "detail": "a request arrived"}])
-            try:
-                self.start_app(app_id, force=True)
-            except ControlError as err:
-                if (err.extra.get("conflict") or {}).get("suggest"):
-                    self.start_app(app_id, port=err.extra["conflict"]["suggest"], force=True)
-                else:
-                    return None
-        self.refresh()
-        ok, _ = self.wait_ready(app, timeout)
+            # Windows can hold a killed server's port for a moment, so wait for it, and try once more if the app exits at once.
+            deadline = time.time() + 5
+            while app.get("port") and not probe.port_free(int(app["port"])) and time.time() < deadline:
+                time.sleep(0.1)
+            ok = False
+            for _ in range(2):
+                try:
+                    self.start_app(app_id, force=True)
+                except ControlError as err:
+                    suggest = (err.extra.get("conflict") or {}).get("suggest")
+                    if not suggest:
+                        return None
+                    self.start_app(app_id, port=suggest, force=True)
+                self.refresh()
+                ok, _ = self.wait_ready(app, timeout)
+                m = self.managed.get(app_id)
+                if ok or (m and m.alive):
+                    break
+                time.sleep(0.5)
         self.refresh()
         self.last_traffic[app_id] = time.time()
         return self.app_ports().get(app_id) if ok else None

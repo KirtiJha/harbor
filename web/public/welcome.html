@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="application-name" content="Harbor" />
+  <meta name="description" content="Harbor shows every app listening on a port on your Mac, which project it belongs to and whether it answers, and lets you open, stop, restart or start it in one click." />
+  <title>Harbor · every port on your Mac, in one place</title>
+  <link rel="icon" type="image/svg+xml" href="/harbor.svg" />
+  <link rel="stylesheet" href="/welcome.css" />
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a class="brand" href="#top">
+      <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#0e7490"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/><path d="M16 8v15M11.5 11.5h9M8.5 17.5c0 4.5 3.4 7 7.5 7s7.5-2.5 7.5-7" fill="none" stroke="#ecfeff" stroke-width="2.4" stroke-linecap="round"/><circle cx="16" cy="7.5" r="2" fill="none" stroke="#ecfeff" stroke-width="1.8"/></svg>
+      <span>Harbor</span>
+    </a>
+    <nav>
+      <a href="#problem">Problem</a>
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#cli">CLI</a>
+      <a href="#safety">Safety</a>
+    </nav>
+    <a class="btn btn-primary btn-sm" href="/">Open dashboard <span aria-hidden="true">→</span></a>
+  </header>
+
+  <main id="top">
+    <!-- ============================================================ HERO -->
+    <section class="hero">
+      <div class="hero-copy reveal">
+        <span class="eyebrow"><span class="dot live"></span> Live on this Mac · refreshes every 2 seconds</span>
+        <h1>Every port on your Mac,<br /><span class="grad">in one harbor.</span></h1>
+        <p class="lead">Ten dev servers, three databases, a forgotten Vite from Tuesday. Harbor shows what is listening, which project it belongs to and whether it answers. Open it, stop it, restart it or start it again in one click.</p>
+        <div class="cta">
+          <a class="btn btn-primary" href="/">Open the dashboard</a>
+          <a class="btn btn-ghost" href="#how">See how it works</a>
+        </div>
+        <div class="install"><span class="prompt">$</span> <code>cd harbor &amp;&amp; make run</code> <button class="copy" data-copy="cd harbor && make run" aria-label="Copy">copy</button></div>
+        <p class="tiny">Python standard library + lsof. No account, no cloud, nothing leaves your machine.</p>
+      </div>
+
+      <div class="hero-visual reveal" aria-label="An animated preview of the Harbor dashboard">
+        <div class="window">
+          <div class="win-bar"><i></i><i></i><i></i><span>localhost:7475</span></div>
+          <div class="win-tabs"><b class="on">Ports <em>6</em></b><b>Apps <em>2/3</em></b><b>Activity</b><span class="live-pill"><span class="dot live"></span>live · 190 ms</span></div>
+          <div class="rows">
+            <div class="group">acme › docs</div>
+            <div class="row r1"><span class="dot ok"></span><b>5173</b><span class="t">Docs site <em>Vite</em></span><span class="spark s1"></span><span class="m">118 MB</span></div>
+            <div class="group">shop</div>
+            <div class="row r2"><span class="dot ok"></span><b>5174</b><span class="t">Shop web <em>Vite</em></span><span class="spark s2"></span><span class="m">101 MB</span></div>
+            <div class="row r3"><span class="dot ok"></span><b>8787</b><span class="t">Shop API <em>Uvicorn</em></span><span class="spark s3"></span><span class="m">63 MB</span></div>
+            <div class="group">Databases</div>
+            <div class="row r4"><span class="dot muted"></span><b>5432</b><span class="t">PostgreSQL</span><span class="spark s4"></span><span class="m">13 MB</span></div>
+            <div class="row r5 idle"><span class="dot ok"></span><b>3000</b><span class="t">old-prototype <em class="v">idle 2d</em></span><span class="spark"></span><span class="m">412 MB</span></div>
+          </div>
+          <div class="toast t1"><span class="dot ok"></span> Shop web is ready on <b>:5174</b> <u>Open</u></div>
+          <div class="toast t2"><span class="dot bad"></span> :5173 is taken by <b>Docs site</b> · use <b>:5175</b>?</div>
+        </div>
+        <div class="float f1">⌘K <span>jump to any port</span></div>
+        <div class="float f2"><span class="dot warn"></span> network-exposed</div>
+      </div>
+    </section>
+
+    <!-- ============================================================ PROBLEM -->
+    <section id="problem" class="section">
+      <div class="head reveal">
+        <span class="kicker">The problem</span>
+        <h2>localhost turns into a crowded harbor</h2>
+        <p>Every project brings a dev server, an API, a database and a watcher. They pile up on ports you never chose, and the tools to see them are a wall of <code>lsof</code> output.</p>
+      </div>
+      <div class="pains">
+        <article class="pain reveal">
+          <div class="term"><span class="r">Error: listen EADDRINUSE: address already in use :::5173</span></div>
+          <h3>“Port already in use”, by what?</h3>
+          <p>Something holds the port. Finding out what means <code>lsof -i :5173</code>, reading a pid, then <code>ps</code> to see what that pid is.</p>
+        </article>
+        <article class="pain reveal">
+          <div class="term"><span>VITE ready → <u>http://localhost:5174/</u></span><span class="d">  Port 5173 is in use, trying another one…</span></div>
+          <h3>Apps quietly move ports</h3>
+          <p>Vite and Next take the next free port without asking. The bookmark on :5173 now opens a different project.</p>
+        </article>
+        <article class="pain reveal">
+          <div class="term"><span>$ kill 55958</span><span class="d">  [vite] restarting… listening on :5174</span></div>
+          <h3>Killing the wrong process</h3>
+          <p>The pid on the port is a child. Its parent (<code>make dev</code>, <code>npm run dev</code>, a reloader) starts it again.</p>
+        </article>
+        <article class="pain reveal">
+          <div class="term"><span>node   62826  *:4700 (LISTEN)</span><span class="d">  # reachable from the café Wi-Fi</span></div>
+          <h3>Exposed and forgotten</h3>
+          <p>Servers bound to all interfaces are open to your network. Week-old servers keep holding memory nobody uses.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============================================================ HOW (architecture) -->
+    <section id="how" class="section">
+      <div class="head reveal">
+        <span class="kicker">How it works</span>
+        <h2>One loop, from sockets to your screen</h2>
+        <p>A small local server reads the machine every two seconds, makes sense of what it finds and streams the picture to your browser. The flow below is live: hover a box.</p>
+      </div>
+
+      <div class="arch reveal">
+        <svg viewBox="20 50 1080 410" class="arch-svg" role="img" aria-label="Architecture: macOS sockets and processes feed the scanner, classifier and prober; the engine diffs, stores and streams to the browser and CLI; the supervisor runs saved apps; the proxy gives stable names.">
+          <defs>
+            <linearGradient id="edge" x1="0" x2="1"><stop offset="0" stop-color="#2dd4bf" stop-opacity=".15"/><stop offset=".5" stop-color="#2dd4bf" stop-opacity=".7"/><stop offset="1" stop-color="#60a5fa" stop-opacity=".15"/></linearGradient>
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+
+          <!-- edges -->
+          <g class="edges" fill="none" stroke="#2dd4bf" stroke-opacity=".38" stroke-width="2">
+            <path id="e1" d="M190 120 C 240 120, 240 120, 290 120"/>
+            <path id="e2" d="M190 235 C 240 235, 240 235, 290 235"/>
+            <path id="e3" d="M450 120 C 500 120, 500 175, 550 175"/>
+            <path id="e4" d="M450 235 C 500 235, 500 195, 550 195"/>
+            <path id="e5" d="M450 350 C 500 350, 500 215, 550 215"/>
+            <path id="e6" d="M730 185 C 780 185, 780 120, 830 120"/>
+            <path id="e7" d="M730 205 C 780 205, 780 250, 830 250"/>
+            <path id="e8" d="M640 250 C 640 300, 640 330, 640 380"/>
+            <path id="e9" d="M190 350 C 240 350, 240 350, 290 350"/>
+            <path id="e10" d="M1000 120 C 1030 120, 1030 120, 1060 120"/>
+          </g>
+
+          <!-- packets -->
+          <g class="packets">
+            <circle r="4" class="pk a"><animateMotion dur="2.2s" repeatCount="indefinite"><mpath href="#e1"/></animateMotion></circle>
+            <circle r="4" class="pk a"><animateMotion dur="2.2s" begin=".6s" repeatCount="indefinite"><mpath href="#e2"/></animateMotion></circle>
+            <circle r="4" class="pk a"><animateMotion dur="2.2s" begin="1.1s" repeatCount="indefinite"><mpath href="#e9"/></animateMotion></circle>
+            <circle r="4" class="pk b"><animateMotion dur="2s" begin=".3s" repeatCount="indefinite"><mpath href="#e3"/></animateMotion></circle>
+            <circle r="4" class="pk b"><animateMotion dur="2s" begin=".9s" repeatCount="indefinite"><mpath href="#e4"/></animateMotion></circle>
+            <circle r="4" class="pk b"><animateMotion dur="2s" begin="1.4s" repeatCount="indefinite"><mpath href="#e5"/></animateMotion></circle>
+            <circle r="4.5" class="pk c"><animateMotion dur="1.6s" begin=".2s" repeatCount="indefinite"><mpath href="#e6"/></animateMotion></circle>
+            <circle r="4.5" class="pk c"><animateMotion dur="1.6s" begin="1s" repeatCount="indefinite"><mpath href="#e7"/></animateMotion></circle>
+            <circle r="4" class="pk d"><animateMotion dur="2.4s" begin=".5s" repeatCount="indefinite"><mpath href="#e8"/></animateMotion></circle>
+          </g>
+
+          <!-- nodes -->
+          <g class="node" data-step="0" transform="translate(30 80)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">macOS</text><text x="80" y="56" class="ns">lsof · sockets</text></g>
+          <g class="node" data-step="0" transform="translate(30 195)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">Processes</text><text x="80" y="56" class="ns">ps · tree · cwd</text></g>
+          <g class="node" data-step="2" transform="translate(30 310)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">Your servers</text><text x="80" y="56" class="ns">HTTP on each port</text></g>
+
+          <g class="node" data-step="1" transform="translate(290 80)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">Scanner</text><text x="80" y="56" class="ns">every 2 seconds</text></g>
+          <g class="node" data-step="1" transform="translate(290 195)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">Classifier</text><text x="80" y="56" class="ns">project · framework</text></g>
+          <g class="node" data-step="2" transform="translate(290 310)"><rect width="160" height="80" rx="14"/><text x="80" y="34" class="nt">Prober</text><text x="80" y="56" class="ns">status · title · ms</text></g>
+
+          <g class="node core" data-step="3" transform="translate(550 120)"><rect width="180" height="130" rx="18"/><text x="90" y="44" class="nt big">Engine</text><text x="90" y="68" class="ns">diff → events</text><text x="90" y="88" class="ns">idle · drift · conflicts</text><text x="90" y="108" class="ns">actions + guard rails</text></g>
+          <g class="node" data-step="5" transform="translate(560 380)"><rect width="160" height="70" rx="14"/><text x="80" y="30" class="nt">Supervisor</text><text x="80" y="50" class="ns">saved apps · logs</text></g>
+
+          <g class="node" data-step="4" transform="translate(830 80)"><rect width="170" height="80" rx="14"/><text x="85" y="34" class="nt">Local server</text><text x="85" y="56" class="ns">API · live stream</text></g>
+          <g class="node" data-step="6" transform="translate(830 210)"><rect width="170" height="80" rx="14"/><text x="85" y="34" class="nt">Stable names</text><text x="85" y="56" class="ns">app.localhost → port</text></g>
+          <g class="node ui" data-step="4" transform="translate(1060 60)"><rect width="30" height="120" rx="10"/></g>
+          <text x="1075" y="200" class="ns" text-anchor="middle">UI</text>
+
+          <!-- store -->
+          <g class="node store" data-step="5" transform="translate(830 340)"><rect width="170" height="80" rx="14"/><text x="85" y="34" class="nt">~/.harbor</text><text x="85" y="56" class="ns">apps · notes · logs</text></g>
+          <path d="M730 230 C 780 230, 780 380, 830 380" fill="none" stroke="#a78bfa" stroke-opacity=".35" stroke-width="1.5" stroke-dasharray="4 5" class="dash"/>
+        </svg>
+
+        <ol class="steps">
+          <li data-step="0"><b>Read</b> the machine: every listening TCP socket (<code>lsof</code>) and the whole process table (<code>ps</code>). About 0.2 s.</li>
+          <li data-step="1"><b>Understand</b> each one: its project (package.json, pyproject, git), its framework (Vite, Next, Uvicorn, Postgres…) and the app that launched it.</li>
+          <li data-step="2"><b>Ask</b> each server over HTTP for its status, page title and response time, so “node” becomes “Shop web · 200 · 7 ms”.</li>
+          <li data-step="3"><b>Decide</b>: what opened or closed, what is idle, what moved off its port, what is exposed to the network, what is safe to stop.</li>
+          <li data-step="4"><b>Stream</b> the picture to the browser as it changes (server-sent events), with every action behind a session token.</li>
+          <li data-step="5"><b>Run</b> your saved apps with their output captured, conflicts resolved and crashes restarted, and remember notes and settings.</li>
+          <li data-step="6"><b>Route</b> <code>http://shop.localhost:7475</code> to wherever Shop is listening today, websockets included.</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ============================================================ STOP WHOLE APP -->
+    <section class="section split">
+      <div class="reveal">
+        <span class="kicker">Stop whole app</span>
+        <h2>Stops what started it, not just the process on the port</h2>
+        <p>The process on the port is rarely the one you meant. Harbor walks up the process tree through launchers (<code>make</code>, <code>npm</code>, shells running a command, reloaders) and stops at your terminal, editor or agent. It never goes past them.</p>
+        <p>Then it asks politely (SIGTERM), waits a few seconds, and forces only the processes still running (SIGKILL). Desktop apps and macOS services need you to type the port number first, and Harbor never uses sudo.</p>
+      </div>
+      <div class="tree reveal" aria-label="An animated process tree being stopped">
+        <div class="tn host">zsh <span>your terminal · untouched</span></div>
+        <div class="tn root" style="--d:1">make dev <span>← Harbor stops here</span></div>
+        <div class="tn" style="--d:2">sh -c "npm run dev"</div>
+        <div class="tn" style="--d:3">npm run dev</div>
+        <div class="tn port" style="--d:4">node vite <b>:5173</b></div>
+        <div class="tn" style="--d:2">uvicorn --reload <b>:8787</b></div>
+        <div class="tn" style="--d:3">python worker</div>
+        <div class="sig">SIGTERM → 4 s → SIGKILL</div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STABLE NAMES -->
+    <section class="section split rev">
+      <div class="names reveal" aria-label="A stable name following an app between ports">
+        <div class="url-pill"><span class="dot ok"></span> http://<b>shop</b>.localhost:7475</div>
+        <svg viewBox="0 0 300 120" class="route"><path id="rt" d="M150 0 C150 50, 70 50, 70 110" class="rt a"/><path d="M150 0 C150 50, 230 50, 230 110" class="rt b"/></svg>
+        <div class="docks"><div class="dock d1">:5173 <span>taken by Docs site</span></div><div class="dock d2">:5174 <span>Shop today</span></div></div>
+      </div>
+      <div class="reveal">
+        <span class="kicker">Stable names</span>
+        <h2>Bookmarks that keep working when the port changes</h2>
+        <p>Give an app a short name and open <code>http://name.localhost:7475</code>. Harbor sends it to whatever port the app is on now, websockets and hot reload included. When Shop lands on :5174 because Docs site got :5173 first, the bookmark still works.</p>
+        <p class="muted">Browsers send <code>*.localhost</code> to your own machine. No DNS setup, no hosts file, no certificates.</p>
+      </div>
+    </section>
+
+    <!-- ============================================================ FEATURES -->
+    <section id="features" class="section">
+      <div class="head reveal">
+        <span class="kicker">Features</span>
+        <h2>Everything you reach for when localhost gets busy</h2>
+      </div>
+      <div class="grid">
+        <article class="feat reveal"><i>📡</i><h3>Live port map</h3><p>Every listening port, grouped by project, with framework, page title, HTTP status, uptime, connections, and CPU and memory sparklines.</p></article>
+        <article class="feat reveal"><i>🧭</i><h3>Knows the project</h3><p>Reads package.json, pyproject and git to name each port after its project, instead of “node” or “Python”.</p></article>
+        <article class="feat reveal"><i>🛑</i><h3>Stop the right thing</h3><p>Stop a process or the whole app tree, one at a time or several at once, gracefully first and by force only if needed.</p></article>
+        <article class="feat reveal"><i>🚀</i><h3>Saved apps</h3><p>Command, folder and port saved once. Start, stop and restart in one click, with live coloured logs and clickable URLs.</p></article>
+        <article class="feat reveal"><i>🧩</i><h3>Groups</h3><p>Put backend and frontend in a group and start or stop the whole thing with one click.</p></article>
+        <article class="feat reveal"><i>⚔️</i><h3>Conflicts handled first</h3><p>Before starting, Harbor shows who holds the port. Take the next free one (it sets <code>PORT</code> and fills <code>{port}</code>) or take it over.</p></article>
+        <article class="feat reveal"><i>🌙</i><h3>Forgotten servers</h3><p>Dev servers with no connections and no CPU for hours are flagged idle. Stop them all in one click and get the memory back.</p></article>
+        <article class="feat reveal"><i>🔗</i><h3>Stable names</h3><p><code>name.localhost:7475</code> follows an app to whichever port it is on, websockets included.</p></article>
+        <article class="feat reveal"><i>📱</i><h3>Phone testing</h3><p>Network-exposed servers show their Wi-Fi URL. Others are marked local-only, so you know what the café can reach.</p></article>
+        <article class="feat reveal"><i>🔔</i><h3>Watch and notify</h3><p>Watch a port, and Harbor shows a banner, a toast and a desktop notification when it goes down, with a button to start it again.</p></article>
+        <article class="feat reveal"><i>🔍</i><h3>Find projects</h3><p>Scans a folder for npm, pnpm and yarn scripts, Makefile targets, Django, FastAPI, Flask and Streamlit apps, and Compose files, ready to add.</p></article>
+        <article class="feat reveal"><i>⌨️</i><h3>Keyboard first</h3><p>⌘K palette (type a port number to jump to it), / to search, j/k to move, o to open, x to stop, p to pin, space to select.</p></article>
+        <article class="feat reveal"><i>🐳</i><h3>Docker aware</h3><p>Published container ports show the container name and image, with a <code>docker stop</code> button.</p></article>
+        <article class="feat reveal"><i>🕰</i><h3>History</h3><p>An activity timeline, a per-port history, response-time sparklines and an uptime count for every server.</p></article>
+        <article class="feat reveal"><i>📦</i><h3>Share setups</h3><p>Export your apps to JSON, and import a teammate's to get the same one-click setup.</p></article>
+        <article class="feat reveal"><i>🖥</i><h3>Starts with your Mac</h3><p><code>harbor service install</code> runs it at login through launchd. <code>uninstall</code> removes it.</p></article>
+      </div>
+    </section>
+
+    <!-- ============================================================ CLI -->
+    <section id="cli" class="section split">
+      <div class="reveal">
+        <span class="kicker">Command line</span>
+        <h2>The same answers in your terminal</h2>
+        <p>Every dashboard question has a short command. <code>who</code> tells you what is on a port, <code>kill --app</code> stops it properly, and <code>free</code> finds a port you can use.</p>
+        <ul class="cmds">
+          <li><code>harbor ls</code> listening ports (<code>--all</code>, <code>--json</code>)</li>
+          <li><code>harbor who 5173</code> command, folder, app, HTTP answer</li>
+          <li><code>harbor kill 5173 --app</code> stop the whole app</li>
+          <li><code>harbor free 3000 -n 5</code> next free ports</li>
+          <li><code>harbor service install</code> start at login</li>
+        </ul>
+      </div>
+      <div class="terminal reveal">
+        <div class="win-bar"><i></i><i></i><i></i><span>zsh</span></div>
+        <pre id="typer" aria-live="off"></pre>
+      </div>
+    </section>
+
+    <!-- ============================================================ SAFETY -->
+    <section id="safety" class="section">
+      <div class="head reveal">
+        <span class="kicker">Safe by design</span>
+        <h2>A process killer you can trust</h2>
+      </div>
+      <div class="safety">
+        <div class="safe reveal"><b>127.0.0.1 only</b><p>Harbor never listens on your network.</p></div>
+        <div class="safe reveal"><b>No DNS rebinding</b><p>It answers only requests addressed to its own localhost port.</p></div>
+        <div class="safe reveal"><b>Session token</b><p>Every change needs a token only Harbor's own page can read, so other sites can't send it commands.</p></div>
+        <div class="safe reveal"><b>Guard rails</b><p>It can't stop itself, other users' processes, or anything outside what it shows. Desktop apps and macOS services need you to type the port number.</p></div>
+        <div class="safe reveal"><b>No sudo, no cloud</b><p>Your user's processes only. State stays in <code>~/.harbor</code>.</p></div>
+        <div class="safe reveal"><b>Zero dependencies</b><p>The backend is the Python standard library, so there's nothing to install or audit.</p></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ START -->
+    <section class="section start reveal">
+      <h2>Bring order to localhost in a minute</h2>
+      <div class="steps3">
+        <div><span>1</span><code>cd harbor &amp;&amp; make run</code><p>Builds the UI once and opens the dashboard.</p></div>
+        <div><span>2</span><code>make install</code><p>Puts <code>harbor</code> on your PATH.</p></div>
+        <div><span>3</span><code>harbor service install</code><p>Optional: start with your Mac.</p></div>
+      </div>
+      <a class="btn btn-primary" href="/">Open the dashboard →</a>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Harbor · a local tool. Nothing leaves your machine.</span>
+    <span><a href="/">Dashboard</a> · <a href="#how">How it works</a> · <a href="#cli">CLI</a></span>
+  </footer>
+
+  <script src="/welcome.js"></script>
+</body>
+</html>

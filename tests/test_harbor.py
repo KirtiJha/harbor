@@ -1,0 +1,279 @@
+"""Harbor tests: parsers and rules on recorded command output, plus the real server and a real app run
+on this machine (a throwaway `python3 -m http.server` on a free port)."""
+import json
+import os
+import socket
+import sys
+import tempfile
+import threading
+import time
+import unittest
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+from harbor import classify, probe, system
+from harbor.core import Harbor, slugify
+from harbor.discover import discover
+from harbor.store import Store
+
+LSOF_LISTEN = """p6072
+cnode
+u501
+Ldev
+f22
+n127.0.0.1:5173
+f23
+n[::1]:5173
+p923
+crapportd
+u501
+Ldev
+f10
+n*:61038
+"""
+
+PS = """    1     0     1     0   0.0  12000 6-17:00:00 /sbin/launchd
+  100     1   100   501   0.0   4000 01:00:00 /bin/zsh -l
+  200   100   200   501   0.0   3000    10:00 make dev
+  201   200   200   501   0.0   2000    10:00 /bin/sh -c npm run dev
+  202   201   200   501   0.0  50000    10:00 npm run dev
+  203   202   200   501   1.5 120000    09:59 node /p/node_modules/.bin/vite
+  300     1   300   501   0.1  60000 01-02:03:04 uvicorn app:app --reload --port 8000
+  301   300   300   501   0.2  40000    05:00 /usr/bin/python3 -c from multiprocessing.spawn import spawn_main
+  400   999   400   501   0.0   1000    01:00 /bin/zsh -c eval 'make dev'
+  401   400   400   501   0.0   1000    01:00 make dev
+  402   401   400   501   0.0   1000    01:00 node vite
+  999     1   999   501   0.0   1000    01:00 claude
+"""
+
+
+class Parsing(unittest.TestCase):
+    def test_listeners_merge_ipv4_and_ipv6_of_one_process(self):
+        rows = system.parse_listeners(LSOF_LISTEN)
+        self.assertEqual(rows[(6072, 5173)]["addresses"], ["127.0.0.1", "::1"])
+        self.assertEqual(rows[(923, 61038)]["addresses"], ["*"])
+
+    def test_elapsed_time_formats(self):
+        self.assertEqual(system.parse_etime("05:00"), 300)
+        self.assertEqual(system.parse_etime("01:00:00"), 3600)
+        self.assertEqual(system.parse_etime("01-02:03:04"), 93784)
+
+    def test_ps_lines(self):
+        procs = system.parse_ps(PS)
+        self.assertEqual(procs[203]["args"], "node /p/node_modules/.bin/vite")
+        self.assertEqual(procs[300]["elapsed"], 93784)
+
+    def test_established_counts_only_the_server_side(self):
+        text = "p1\nf3\nn127.0.0.1:5173->127.0.0.1:50000\np2\nf4\nn127.0.0.1:50000->127.0.0.1:5173\n"
+        self.assertEqual(system.parse_established(text, {5173}), {5173: 1})
+
+
+class Rules(unittest.TestCase):
+    procs = system.parse_ps(PS)
+
+    def test_app_root_climbs_launchers_but_stops_at_the_interactive_shell(self):
+        self.assertEqual(classify.app_root(203, self.procs, 501), 200)   # make dev, not zsh -l
+
+    def test_app_root_ignores_an_agent_or_editor_wrapper_shell(self):
+        self.assertEqual(classify.app_root(402, self.procs, 501), 401)   # make dev, not claude's `zsh -c`
+
+    def test_descendants(self):
+        self.assertEqual(sorted(classify.descendants(200, self.procs)), [201, 202, 203])
+
+    def test_frameworks_and_kinds(self):
+        self.assertEqual(classify.framework("node /x/node_modules/.bin/vite")["id"], "vite")
+        self.assertEqual(classify.framework("uvicorn app:app --reload")["id"], "uvicorn")
+        self.assertEqual(classify.framework("/opt/homebrew/bin/postgres -D x")["kind"], "database")
+        vscode = "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin) --inspect"
+        self.assertEqual(classify.kind_of("Code\\x20H", vscode, 501, 501, classify.framework(vscode)), "app")
+        python_app = "/opt/homebrew/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python .venv/bin/uvicorn a:b"
+        self.assertEqual(classify.kind_of("Python", python_app, 501, 501, classify.framework(python_app)), "dev")
+        self.assertEqual(classify.kind_of("rapportd", "/usr/libexec/rapportd", 501, 501, None), "system")
+
+    def test_readable_command(self):
+        self.assertEqual(classify.display_command("node /a/b/node_modules/.bin/vite --port 1"), "node vite --port 1")
+
+    def test_workers_sharing_a_socket_become_one_row(self):
+        rows = [{"port": 8000, "pid": 300, "cpu": 0.1, "memMb": 58.6, "connections": 0, "display": "uvicorn"},
+                {"port": 8000, "pid": 301, "cpu": 0.2, "memMb": 39.1, "connections": 2, "display": "python"}]
+        out = Harbor._merge_workers(rows, self.procs)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["pid"], 300)
+        self.assertEqual(out[0]["workers"][0]["pid"], 301)
+        self.assertEqual(out[0]["connections"], 2)
+
+
+class NewRules(unittest.TestCase):
+    def test_slugs_are_url_safe_and_unique(self):
+        self.assertEqual(slugify("Shop web!"), "shop-web")
+        with tempfile.TemporaryDirectory() as d:
+            h = Harbor(Store(d))
+            a = h.store.upsert_app({"name": "Web", "cwd": d, "command": "x"})
+            b = h.store.upsert_app({"name": "web", "cwd": d, "command": "y"})
+            c = h.store.upsert_app({"name": "API", "cwd": d, "command": "z", "slug": "api"})
+            self.assertEqual(h.app_slugs(), {a["id"]: "web", b["id"]: "web-2", c["id"]: "api"})
+
+    def test_idle_needs_hours_without_connections_or_cpu(self):
+        with tempfile.TemporaryDirectory() as d:
+            h = Harbor(Store(d))
+            now, four_hours = time.time(), 4 * 3600
+            old = {"cpu": 0.0, "elapsed": 2 * 86400}
+            self.assertGreater(h._idle_for(5173, "dev", old, 0, now, four_hours), four_hours)
+            self.assertIsNone(h._idle_for(5173, "dev", old, 1, now, four_hours), "an open connection means in use")
+            self.assertIsNone(h._idle_for(5173, "dev", {"cpu": 5.0, "elapsed": 2 * 86400}, 0, now, four_hours))
+            self.assertIsNone(h._idle_for(5432, "database", old, 0, now, four_hours), "databases are never idle")
+            h.last_active[5173] = now - 60
+            self.assertIsNone(h._idle_for(5173, "dev", old, 0, now, four_hours), "used a minute ago")
+
+
+class Discovery(unittest.TestCase):
+    def test_finds_npm_scripts_make_targets_and_python_apps(self):
+        with tempfile.TemporaryDirectory() as d:
+            web = Path(d, "web")
+            web.mkdir()
+            (web / "package.json").write_text(json.dumps({"name": "web", "scripts": {"dev": "vite --port 5180"}}))
+            (web / "pnpm-lock.yaml").write_text("")
+            api = Path(d, "api")
+            api.mkdir()
+            (api / "main.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n")
+            Path(d, "Makefile").write_text("dev:\n\tuvicorn api.main:app --port 8001\n")
+            items = {(i["rel"], i["command"]): i for i in discover(d, 2)["items"]}
+            self.assertEqual(items[("web", "pnpm run dev")]["port"], 5180)
+            self.assertEqual(items[(".", "make dev")]["port"], 8001)
+            self.assertIn(("api", "uvicorn main:app --reload --port {port}"), items)
+
+
+class Ports(unittest.TestCase):
+    def test_free_port_finder_skips_a_listening_port(self):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        s.listen()
+        port = s.getsockname()[1]
+        try:
+            self.assertFalse(probe.port_free(port))
+            self.assertNotIn(port, probe.free_ports(port, 2))
+        finally:
+            s.close()
+
+
+def free_port():
+    return probe.free_ports(47000, 1)[0]
+
+
+class LiveServer(unittest.TestCase):
+    """Harbor's real HTTP server on a free port, with its state in a temporary folder."""
+
+    @classmethod
+    def setUpClass(cls):
+        from harbor.server import serve
+        cls.home = tempfile.TemporaryDirectory()
+        cls.port = free_port()
+        cls.h = Harbor(Store(cls.home.name), cls.port)
+        threading.Thread(target=serve, args=(cls.h, cls.port), daemon=True).start()
+        for _ in range(50):
+            if not probe.port_free(cls.port):
+                break
+            time.sleep(0.1)
+        cls.token = cls.get("/api/session")["token"]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.h.shutdown_apps()
+        cls.h.stop()
+        cls.home.cleanup()
+
+    @classmethod
+    def call(cls, method, path, body=None, host=None, token=True):
+        req = urllib.request.Request(f"http://127.0.0.1:{cls.port}{path}", method=method,
+                                     data=json.dumps(body).encode() if body is not None else None)
+        req.add_header("Host", host or f"127.0.0.1:{cls.port}")
+        if body is not None:
+            req.add_header("Content-Type", "application/json")
+        if token and method != "GET":
+            req.add_header("X-Harbor-Token", cls.token)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as err:
+            with err:
+                return err.code, json.loads(err.read() or b"{}")
+
+    @classmethod
+    def get(cls, path):
+        return cls.call("GET", path)[1]
+
+    def test_sees_itself_and_will_not_stop_itself(self):
+        snap = self.get("/api/state")
+        me = [r for r in snap["listeners"] if r["port"] == self.port]
+        self.assertTrue(me, "Harbor's own port is missing from the list")
+        self.assertEqual(me[0]["risk"], "self")
+        status, body = self.call("POST", "/api/kill", {"pid": os.getpid(), "mode": "process"})
+        self.assertEqual(status, 403, body)
+
+    def test_import_skips_duplicates_and_incomplete_apps(self):
+        apps = [{"name": "one", "cwd": self.home.name, "command": "echo 1"}, {"name": "no command", "cwd": self.home.name}]
+        status, r = self.call("POST", "/api/apps/import", {"apps": apps})
+        self.assertEqual((status, r["added"]), (200, ["one"]))
+        status, r = self.call("POST", "/api/apps/import", {"apps": apps[:1]})
+        self.assertEqual((r["added"], r["skipped"][0]["why"]), ([], "already saved"))
+        exported = self.get("/api/apps/export")["apps"]
+        self.assertIn("one", [a["name"] for a in exported])
+
+    def test_rejects_requests_for_another_host_name(self):
+        status, _ = self.call("GET", "/api/state", host="evil.example:80")
+        self.assertEqual(status, 403)
+
+    def test_changes_need_the_session_token(self):
+        status, _ = self.call("PUT", "/api/ports/5999", {"note": "x"}, token=False)
+        self.assertEqual(status, 403)
+        status, meta = self.call("PUT", "/api/ports/5999", {"note": "x"})
+        self.assertEqual((status, meta), (200, {"note": "x"}))
+
+    def test_a_saved_app_starts_logs_moves_off_a_taken_port_and_stops(self):
+        blocker = socket.socket()
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen()
+        taken = blocker.getsockname()[1]
+        try:
+            status, app = self.call("POST", "/api/apps", {"name": "demo", "cwd": self.home.name, "port": taken,
+                                                          "command": f"{sys.executable} -u -m http.server {{port}} --bind 127.0.0.1"})
+            self.assertEqual(status, 200, app)
+            status, err = self.call("POST", f"/api/apps/{app['id']}/start", {})
+            self.assertEqual(status, 409, err)
+            alt = err["conflict"]["suggest"]
+            self.assertTrue(alt and alt != taken)
+            status, run = self.call("POST", f"/api/apps/{app['id']}/start", {"port": alt, "force": True})
+            self.assertEqual(status, 200, run)
+            for _ in range(60):
+                self.h.refresh()
+                st = next(a for a in self.get("/api/state")["apps"] if a["id"] == app["id"])
+                if st["state"] == "running":
+                    break
+                time.sleep(0.2)
+            self.assertEqual(st["state"], "running", st)
+            self.assertEqual(st["ports"], [alt])
+            self.assertTrue(st["drift"], "running off its saved port should be flagged")
+            # the stable name reaches the app on whichever port it is on
+            req = urllib.request.Request(f"http://127.0.0.1:{self.port}/")
+            req.add_header("Host", f"demo.localhost:{self.port}")
+            with urllib.request.urlopen(req, timeout=10) as r:
+                self.assertIn(b"Directory listing", r.read(), "demo.localhost did not reach the app")
+            logs = self.get(f"/api/apps/{app['id']}/logs")
+            self.assertTrue(any("Serving HTTP" in ln["text"] for ln in logs["lines"]), logs)
+            status, _ = self.call("POST", f"/api/apps/{app['id']}/stop", {})
+            self.assertEqual(status, 200)
+            for _ in range(30):
+                if probe.port_free(alt):
+                    break
+                time.sleep(0.1)
+            self.assertTrue(probe.port_free(alt), "the app's port is still taken after stopping it")
+            time.sleep(0.3)
+            st = next(a for a in self.get("/api/state")["apps"] if a["id"] == app["id"])
+            self.assertEqual(st["run"]["status"], "stopped", "a stop from Harbor must not be reported as a crash")
+        finally:
+            blocker.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -203,7 +203,11 @@ class NewRules(unittest.TestCase):
 
 class SurvivesRestart(unittest.TestCase):
     def test_an_app_keeps_running_and_is_picked_up_by_the_next_harbor(self):
-        with tempfile.TemporaryDirectory() as d:
+        # Not TemporaryDirectory(): on Windows the stopped app's log may still be open for a moment, and a failed
+        # cleanup would fail a test whose checks all passed.
+        d = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, d, True)
+        if True:
             port = free_port()
             first = Harbor(Store(d))
             app = first.store.upsert_app({"name": "demo", "cwd": d, "command": f"{sys.executable} -u -m http.server {port} --bind 127.0.0.1"})

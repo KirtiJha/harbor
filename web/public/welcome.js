@@ -107,6 +107,14 @@
     ["pause", 700],
     ["cmd", "porthaven free 5173 -n 3"],
     ["out", "5175 5176 5177"],
+    ["pause", 900],
+    ["cmd", "porthaven up"],
+    ["out", '<span class="b">~/shop/porthaven.toml</span>  <span class="dim">3 added, 0 updated</span>'],
+    ["out", '<span class="dim">starting in order: Shop API → Storefront → Admin Portal</span>'],
+    ["out", '  <span class="g">running</span>   Shop API      :8000  http://api.localhost:7475/'],
+    ["out", '  <span class="g">running</span>   Storefront    :5173  http://shop.localhost:7475/'],
+    ["out", '  <span class="g">running</span>   Admin Portal  :5180  http://admin.localhost:7475/'],
+    ["out", '<span class="g">All 3 up.</span>'],
     ["pause", 2600],
   ];
   if (!pre) return;

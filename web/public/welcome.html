@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="dark" />
   <meta name="application-name" content="Porthaven" />
-  <meta name="description" content="Porthaven shows every app listening on a port on your machine (macOS, Linux or Windows), which project it belongs to and whether it answers, and lets you open, stop, restart or start it in one click." />
+  <meta name="description" content="Porthaven shows every app listening on a port on your machine (macOS, Linux or Windows), starts whole stacks in dependency order, gives each git branch its own port, and lets coding agents do the same through MCP." />
   <title>Porthaven · a safe haven for every port on your machine</title>
   <link rel="icon" type="image/svg+xml" href="porthaven.svg" />
   <link rel="stylesheet" href="welcome.css" />
@@ -22,6 +22,8 @@
     <nav>
       <a href="#problem">Problem</a>
       <a href="#how">How it works</a>
+      <a href="#stacks">Stacks</a>
+      <a href="#agents">Agents</a>
       <a href="#features">Features</a>
       <a href="#cli">CLI</a>
       <a href="#safety">Safety</a>
@@ -35,7 +37,7 @@
       <div class="hero-copy reveal">
         <span class="eyebrow"><span class="dot live"></span> macOS · Linux · Windows · refreshes every 2 seconds</span>
         <h1>Every port on your machine,<br /><span class="grad">one safe haven.</span></h1>
-        <p class="lead">Ten dev servers, three databases, a forgotten Vite from Tuesday. Porthaven shows what is listening, which project it belongs to and whether it answers. Open it, stop it, restart it or start it again in one click.</p>
+        <p class="lead">Ten dev servers, three databases, a forgotten Vite from Tuesday. Porthaven shows what is listening, which project it belongs to and whether it answers. Start whole stacks in the right order, run every branch on its own port, and let your coding agent do the same.</p>
         <div class="cta">
           <a class="btn btn-primary" href="/">Open the dashboard</a>
           <a class="btn btn-ghost" href="#how">See how it works</a>
@@ -208,6 +210,72 @@
       </div>
     </section>
 
+    <!-- ============================================================ STACKS -->
+    <section id="stacks" class="section split">
+      <div class="reveal">
+        <span class="kicker">Stacks</span>
+        <h2>Start the whole stack, in the right order</h2>
+        <p>Say that the storefront needs the API. Porthaven starts the API first, waits until <code>/health</code> answers, then starts what depends on it. Write <code>{url:api}</code> in a command or an environment variable and it becomes the port the API is on today, so nothing is hard-coded.</p>
+        <p>Commit it as <code>porthaven.toml</code>, and whoever clones the repo runs <code>porthaven up</code>.</p>
+        <div class="install"><span class="prompt">$</span> <code>porthaven up</code> <button class="copy" data-copy="porthaven up" aria-label="Copy">copy</button></div>
+      </div>
+      <div class="stack reveal" aria-label="An animated stack starting in dependency order">
+        <div class="sk-file"><span class="dim"># porthaven.toml</span>
+<span class="k">[apps.api]</span>
+command = <span class="s">"uvicorn main:app --port {port}"</span>
+health  = <span class="s">"/products"</span>
+
+<span class="k">[apps.web]</span>
+depends_on = [<span class="s">"api"</span>]
+env = { VITE_API_URL = <span class="s">"{url:api}"</span> }</div>
+        <div class="sk-graph">
+          <div class="sk n-api"><i class="dot"></i><b>Shop API</b><span class="sk-port">:8000</span><span class="sk-st"><em class="s1">starting</em><em class="s2">/products 200 ✓</em></span></div>
+          <svg class="sk-wires" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true"><path d="M100 0 C100 30, 40 30, 40 60"/><path d="M100 0 C100 30, 160 30, 160 60"/></svg>
+          <div class="sk-row">
+            <div class="sk n-web"><i class="dot"></i><b>Storefront</b><span class="sk-port">:5173</span><span class="sk-st"><em class="s0">waiting</em><em class="s2">ready ✓</em></span></div>
+            <div class="sk n-adm"><i class="dot"></i><b>Admin</b><span class="sk-port">:5180</span><span class="sk-st"><em class="s0">waiting</em><em class="s2">ready ✓</em></span></div>
+          </div>
+          <div class="sk-env">VITE_API_URL=<b>http://localhost:8000</b></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ WORKTREES -->
+    <section class="section split rev">
+      <div class="branches reveal" aria-label="Git branches running side by side on their own ports">
+        <div class="br b-main"><span class="br-name">⎇ main</span><span class="br-url">shop.localhost</span><span class="br-port">:5173</span></div>
+        <div class="br b-feat"><span class="br-name">⎇ feature/checkout</span><span class="br-url">checkout.shop.localhost</span><span class="br-port">:5174</span></div>
+        <div class="br b-agent"><span class="br-name">⎇ agent/fix-cart <span class="br-tag">by agent</span></span><span class="br-url">fix-cart.shop.localhost</span><span class="br-port">:5175</span></div>
+      </div>
+      <div class="reveal">
+        <span class="kicker">Git worktrees</span>
+        <h2>Every branch gets its own port and its own address</h2>
+        <p>Run a saved app from any worktree of its repo. Porthaven gives it a free port and a name like <code>checkout.shop.localhost</code>, so you can compare two branches side by side, and three coding agents can work in parallel without fighting over :3000.</p>
+        <p class="muted">Cards and ports show the branch each server runs from, so you always know which checkout you are looking at.</p>
+      </div>
+    </section>
+
+    <!-- ============================================================ AGENTS -->
+    <section id="agents" class="section split">
+      <div class="reveal">
+        <span class="kicker">For coding agents</span>
+        <h2>Your agent starts servers too. Now it can see them.</h2>
+        <p>Porthaven includes an MCP server. Claude Code, Cursor, Windsurf and other agents can list ports, start a stack, read logs, run a worktree and free a port, with the same guard rails you have. It won't stop Porthaven, other users' processes or system services, and everything it does shows in Activity as <em>by agent</em>.</p>
+        <div class="install"><span class="prompt">$</span> <code>claude mcp add porthaven -- porthaven mcp</code> <button class="copy" data-copy="claude mcp add porthaven -- porthaven mcp" aria-label="Copy">copy</button></div>
+        <div class="tools"><span class="tools-label">14 tools</span><code>list_ports</code><code>port_info</code><code>list_apps</code><code>start_app</code><code>stop_app</code><code>restart_app</code><code>app_logs</code><code>stop_port</code><code>find_free_ports</code><code>stack_up</code><code>stack_down</code><code>run_in_worktree</code><code>recent_requests</code><code>recent_activity</code></div>
+      </div>
+      <div class="agent reveal" aria-label="An animated coding agent using Porthaven tools">
+        <div class="win-bar"><i></i><i></i><i></i><span>coding agent</span></div>
+        <div class="ag-body">
+          <div class="ag u a1">Start the shop and check the checkout page loads.</div>
+          <div class="ag tool a2"><span class="tn2">stack_up</span> <span class="arg">~/code/shop</span><span class="res">Shop API :8000 ✓ · Storefront :5173 ✓</span></div>
+          <div class="ag tool a3"><span class="tn2">recent_requests</span> <span class="arg">storefront</span><span class="res">GET /checkout <b class="bad">500</b> · 41 ms</span></div>
+          <div class="ag tool a4"><span class="tn2">app_logs</span> <span class="arg">api</span><span class="res">KeyError: 'currency' at cart.py:88</span></div>
+          <div class="ag reply a5">The API is missing a default currency. Fixed <code>cart.py</code>, and <code>/checkout</code> now returns 200.</div>
+        </div>
+      </div>
+    </section>
+
     <!-- ============================================================ FEATURES -->
     <section id="features" class="section">
       <div class="head reveal">
@@ -330,14 +398,53 @@
           </div>
           <div class="cap"><h3>Outlives restarts</h3><p>Apps keep running when Porthaven restarts, and it picks them up again with their logs.</p></div>
         </article>
+
+        <!-- request inspector -->
+        <article class="tile t-req reveal">
+          <div class="viz">
+            <div class="req-list">
+              <div class="rq"><b>GET</b><span>/</span><em class="ok">200</em><small>3 ms</small></div>
+              <div class="rq"><b>GET</b><span>/src/main.tsx</span><em class="ok">200</em><small>1 ms</small></div>
+              <div class="rq"><b>POST</b><span>/api/cart</span><em class="ok">201</em><small>18 ms</small></div>
+              <div class="rq"><b>GET</b><span>/checkout</span><em class="bad">500</em><small>41 ms</small></div>
+              <div class="rq"><b>GET</b><span>/api/products?page=2</span><em class="ok">200</em><small>9 ms</small></div>
+            </div>
+          </div>
+          <div class="cap"><h3>Request inspector</h3><p>Every request through an app's stable name, with status, time and size. Spot the 500 without opening devtools.</p></div>
+        </article>
+
+        <!-- sleep / wake -->
+        <article class="tile t-sleep reveal">
+          <div class="viz">
+            <div class="sw"><span class="sw-app">Docs site</span><span class="sw-st"><em class="zz1">asleep · 0 MB</em><em class="zz2">woke in 1.1 s</em></span><span class="sw-req">GET docs.localhost →</span></div>
+          </div>
+          <div class="cap"><h3>Sleep when quiet</h3><p>Apps nobody uses stop to free memory, and wake on the next request.</p></div>
+        </article>
+
+        <!-- exposure guard -->
+        <article class="tile t-expose reveal">
+          <div class="viz">
+            <div class="shield">⛨</div>
+            <div class="exp"><span class="dot bad"></span><div><b>Debug console on the network</b><small>:5000 Flask · 0.0.0.0</small></div></div>
+          </div>
+          <div class="cap"><h3>Exposure guard</h3><p>Werkzeug and Django debug pages reachable from the café Wi-Fi are flagged at once, with the fix.</p></div>
+        </article>
+
+        <!-- workspaces -->
+        <article class="tile t-ws reveal">
+          <div class="viz">
+            <div class="wsl"><span class="ws on">Shop, full stack <small>4 apps</small></span><span class="ws">Docs only <small>1 app</small></span><span class="ws">Checkout feature <small>3 apps</small></span></div>
+          </div>
+          <div class="cap"><h3>Workspaces</h3><p>Save what is running. Restore it tomorrow in one click, or switch and stop the rest.</p></div>
+        </article>
       </div>
 
       <div class="ribbon reveal" aria-label="More features">
         <div class="ribbon-track">
           <span>🐳 Docker-aware</span><span>🔍 Finds your projects</span><span>🧩 Groups</span><span>📦 Export &amp; import</span><span>📱 Wi-Fi URLs for phones</span>
-          <span>🪟 macOS · Linux · Windows</span><span>🌓 Light &amp; dark</span><span>🖥 Starts at login</span><span>🪶 Zero dependencies</span><span>🔒 Token-protected API</span><span>📜 Live, coloured logs</span><span>♻️ Auto-restart on crash</span><span>🏷 Notes &amp; names per port</span>
+          <span>🪟 macOS · Linux · Windows</span><span>🌓 Light &amp; dark</span><span>🖥 Starts at login</span><span>🪶 Zero dependencies</span><span>🔒 Token-protected API</span><span>📜 Live, coloured logs</span><span>♻️ Auto-restart on crash</span><span>🏷 Notes &amp; names per port</span><span>🗂 porthaven.toml</span><span>📲 Installs as an app</span><span>🧭 Menu-bar plugin</span><span>🔀 Git branch on every port</span>
           <span aria-hidden="true">🐳 Docker-aware</span><span aria-hidden="true">🔍 Finds your projects</span><span aria-hidden="true">🧩 Groups</span><span aria-hidden="true">📦 Export &amp; import</span><span aria-hidden="true">📱 Wi-Fi URLs for phones</span>
-          <span aria-hidden="true">🪟 macOS · Linux · Windows</span><span aria-hidden="true">🌓 Light &amp; dark</span><span aria-hidden="true">🖥 Starts at login</span><span aria-hidden="true">🪶 Zero dependencies</span><span aria-hidden="true">🔒 Token-protected API</span><span aria-hidden="true">📜 Live, coloured logs</span><span aria-hidden="true">♻️ Auto-restart on crash</span><span aria-hidden="true">🏷 Notes &amp; names per port</span>
+          <span aria-hidden="true">🪟 macOS · Linux · Windows</span><span aria-hidden="true">🌓 Light &amp; dark</span><span aria-hidden="true">🖥 Starts at login</span><span aria-hidden="true">🪶 Zero dependencies</span><span aria-hidden="true">🔒 Token-protected API</span><span aria-hidden="true">📜 Live, coloured logs</span><span aria-hidden="true">♻️ Auto-restart on crash</span><span aria-hidden="true">🏷 Notes &amp; names per port</span><span aria-hidden="true">🗂 porthaven.toml</span><span aria-hidden="true">📲 Installs as an app</span><span aria-hidden="true">🧭 Menu-bar plugin</span><span aria-hidden="true">🔀 Git branch on every port</span>
         </div>
       </div>
     </section>
@@ -347,12 +454,14 @@
       <div class="reveal">
         <span class="kicker">Command line</span>
         <h2>The same answers in your terminal</h2>
-        <p>Every dashboard question has a short command. <code>who</code> tells you what is on a port, <code>kill --app</code> stops it properly, and <code>free</code> finds a port you can use.</p>
+        <p>Every dashboard question has a short command. <code>who</code> tells you what is on a port, <code>kill --app</code> stops it properly, <code>free</code> finds a port you can use, and <code>up</code> starts your stack.</p>
         <ul class="cmds">
           <li><code>porthaven ls</code> listening ports (<code>--all</code>, <code>--json</code>)</li>
           <li><code>porthaven who 5173</code> command, folder, app, HTTP answer</li>
           <li><code>porthaven kill 5173 --app</code> stop the whole app</li>
           <li><code>porthaven free 3000 -n 5</code> next free ports</li>
+          <li><code>porthaven up</code> / <code>down</code> the stack in <code>porthaven.toml</code></li>
+          <li><code>porthaven mcp</code> MCP server for coding agents</li>
           <li><code>porthaven service install</code> start at login</li>
         </ul>
       </div>
@@ -374,6 +483,8 @@
         <div class="safe reveal"><b>Session token</b><p>Every change needs a token only Porthaven's own page can read, so other sites can't send it commands.</p></div>
         <div class="safe reveal"><b>Guard rails</b><p>It can't stop itself, other users' processes, or anything outside what it shows. Desktop apps and system services need you to type the port number.</p></div>
         <div class="safe reveal"><b>No sudo, no cloud</b><p>Your user's processes only. State stays in <code>~/.porthaven</code>.</p></div>
+        <div class="safe reveal"><b>Same rules for agents</b><p>The MCP server goes through the same guard rails and the same token. Agents can't do anything you couldn't.</p></div>
+        <div class="safe reveal"><b>Exposure guard</b><p>Debug consoles reachable from the network are flagged as critical, with a notification and the fix.</p></div>
         <div class="safe reveal"><b>Zero dependencies</b><p>The backend is the Python standard library, so there's nothing to install or audit.</p></div>
       </div>
     </section>

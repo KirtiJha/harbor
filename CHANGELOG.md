@@ -5,6 +5,36 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-20
+
+Harbor is now **Porthaven**, with a new logo.
+
+### Changed
+- **Renamed** to Porthaven: the command is `porthaven`, state lives in `~/.porthaven`, and the environment variables
+  are `PORTHAVEN_HOME` and `PORTHAVEN_PORT`. State in `~/.harbor` moves over automatically on first start, and
+  `HARBOR_HOME` still works.
+
+### Added
+- **Stacks:** apps can start after other apps and wait for their health check. `{url:api}` and `{port:api}` in a
+  command or environment variable fill in another app's current port, and every app gets `PORTHAVEN_<APP>_PORT` and
+  `PORTHAVEN_<APP>_URL`.
+- **`porthaven.toml`:** a stack committed to the repo. `porthaven up`, `down`, `init`, `start` and `stop` on the
+  command line; import and export in the dashboard; a warning when two apps expect the same port.
+- **MCP server** (`porthaven mcp`) with 14 tools, so coding agents can list ports, start stacks, read logs, run a
+  worktree and free ports, under the same guard rails. Their actions show as "by agent" in Activity.
+- **Git worktrees:** run a saved app from another worktree on its own port and stable name; branch chips on apps
+  and ports.
+- **Sleep when quiet:** apps stop after a quiet period you choose and wake on the next request to their stable name.
+- **Request inspector:** requests through stable names are recorded and shown per app.
+- **Exposure guard:** Werkzeug debug consoles and Django debug pages reachable from the network are flagged, with a
+  notification.
+- **Workspaces:** save what is running and restore or switch to it later.
+- **Install as an app** (PWA with a dock badge) and a menu-bar plugin for SwiftBar, xbar and Argos.
+- Settings show how to connect Claude Code, Cursor, Windsurf and other MCP clients.
+
+### Fixed
+- Menus inside cards are no longer cut off.
+
 ## [1.1.1] - 2026-10-20
 
 ### Fixed
@@ -40,7 +70,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Project discovery, export and import, command palette, CLI (`ls`, `who`, `kill`, `free`, `open`, `service`).
 - Landing page at `/welcome`.
 
-[Unreleased]: https://github.com/KirtiJha/porthaven/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/KirtiJha/porthaven/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/KirtiJha/porthaven/compare/v1.1.1...v2.0.0
 [1.1.1]: https://github.com/KirtiJha/porthaven/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/KirtiJha/porthaven/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/KirtiJha/porthaven/releases/tag/v1.0.0

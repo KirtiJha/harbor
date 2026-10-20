@@ -35,8 +35,14 @@ On Windows, use `bin\porthaven.cmd` and run `npm install && npm run build` insid
 | `porthaven/core.py` | Scan loop, live snapshot, actions and guard rails |
 | `porthaven/control.py` | Stopping processes; running saved apps that outlive Porthaven |
 | `porthaven/metrics.py` | The week of minute-by-minute history behind Activity and Insights |
-| `porthaven/server.py` | Local HTTP server: JSON API, live event stream, stable-name proxy, static UI |
+| `porthaven/stacks.py` | Dependency order, health waits and `{url:app}` placeholders for stacks |
+| `porthaven/teamfile.py` | Reads and writes `porthaven.toml` |
+| `porthaven/gitinfo.py` | Branch and worktree of a folder |
+| `porthaven/mcp.py` | MCP server (stdio) for coding agents |
+| `porthaven/client.py` | Used by the CLI and MCP server to talk to a running Porthaven, starting one if needed |
+| `porthaven/server.py` | Local HTTP server: JSON API, live event stream, stable-name proxy and request inspector, static UI |
 | `web/` | React + Tailwind dashboard, and the landing page in `web/public/welcome.*` |
+| `extras/menubar/` | Menu-bar plugin for SwiftBar, xbar and Argos |
 | `tests/` | Unit tests on recorded command output, plus a real server and real app runs |
 
 ## Reporting bugs and security problems

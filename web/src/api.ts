@@ -24,6 +24,7 @@ export type Listener = {
   lastActive: number | null; idleFor: number | null; lanUrl: string | null; stableUrl: string | null; stableHttpsUrl?: string | null;
   exposureRisk: ExposureRisk;
   agent: AgentInfo | null; leak: Leak | null; shares: Share[]; shareRelay?: string;
+  twins?: { older: boolean; others: { pid: number; title: string; addresses: string[]; uptime: number | null; id: string }[] };
 };
 
 export type AgentInfo = { agent: string; label: string; pid: number; startedAt: number | null; alive: boolean; endedAt: number | null; key: string };

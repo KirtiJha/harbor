@@ -745,6 +745,12 @@ class Porthaven:
                 "leak": self.leaks.get(pid),
             })
         rows = self._merge_workers(rows, procs)
+        self._mark_twins(rows)
+        for r in rows:   # Porthaven's own ports say what each one is for
+            if r["pid"] == self.pid:
+                r["title"] = ("Porthaven · dashboard" if r["port"] == self.port else
+                              "Porthaven · HTTPS for stable names" if r["port"] == self.https["port"] and self.https["enabled"] else
+                              "Porthaven · shared link" if r["port"] in self.shares.relay_ports() else r["title"])
         shares = self.shares.summaries()
         relays = self.shares.relay_ports()
         for r in rows:
@@ -1051,6 +1057,22 @@ class Porthaven:
             return {"level": "medium", "title": "Dev server reachable from your network",
                     "why": "Others on the same Wi-Fi can open it.", "fix": "Bind to 127.0.0.1 (for Vite, drop --host) unless you test from another device."}
         return None
+
+    @staticmethod
+    def _mark_twins(rows):
+        """Two separate servers on one port: possible when one listens on IPv4 (127.0.0.1) and the other on IPv6 (::1),
+        even with --strictPort. `localhost` then reaches either one, depending on the client, so each row says so."""
+        by_port = {}
+        for r in rows:
+            by_port.setdefault(r["port"], []).append(r)
+        for port_rows in by_port.values():
+            if len({r["pid"] for r in port_rows}) < 2:
+                continue
+            for r in port_rows:
+                others = [x for x in port_rows if x["pid"] != r["pid"]]
+                older = all((r["uptime"] or 0) >= (x["uptime"] or 0) for x in others)
+                r["twins"] = {"older": older, "others": [{"pid": x["pid"], "title": x["title"], "addresses": x["addresses"],
+                                                         "uptime": x["uptime"], "id": x["id"]} for x in others]}
 
     @staticmethod
     def _merge_workers(rows, procs):

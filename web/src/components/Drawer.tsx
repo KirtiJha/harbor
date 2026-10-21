@@ -74,6 +74,14 @@ export function Drawer({ l, snap, actions, onClose, onOpenApp }: { l: Listener; 
             <Button size="sm" variant="soft" icon="restart" className="mt-2" onClick={() => { const a = l.managed ? snap.apps.find((x) => x.id === l.managed) : null; void (a ? actions.restartApp(a) : actions.restart(l)); }}>Restart it</Button>
           </div>
         )}
+        {l.twins && (
+          <div className="rounded-xl border border-warn/40 bg-warn/5 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-warn"><Icon name="warn" size={15} />Two servers on :{l.port}</div>
+            <p className="mt-1 text-xs text-ink-2">This one listens on <span className="font-mono">{l.addresses.join(", ")}</span>; {l.twins.others.map((o) => <span key={o.pid}><b>{o.title}</b> (pid {o.pid}, up {duration(o.uptime)}) on <span className="font-mono">{o.addresses.join(", ")}</span></span>)} also does. IPv4 and IPv6 are separate sockets, so even <span className="font-mono">--strictPort</span> lets both start.</p>
+            <p className="mt-1.5 text-xs text-muted"><span className="font-mono">localhost:{l.port}</span> reaches either one, depending on the browser or tool. {l.twins.older ? "This is the older one; it is probably left over." : "The other one is older and probably left over."}</p>
+            {l.twins.older && !locked && <Button size="sm" variant="soft" icon="stop" className="mt-2" onClick={() => void actions.kill(l, "app")}>Stop this older one</Button>}
+          </div>
+        )}
         {l.agent && (
           <div className={cx("rounded-xl border px-4 py-3", l.agent.alive ? "border-line" : "border-warn/40 bg-warn/5")}>
             <div className={cx("flex items-center gap-2 text-sm font-semibold", l.agent.alive ? "text-ink" : "text-warn")}><Icon name="robot" size={15} />Started by {l.agent.label}</div>

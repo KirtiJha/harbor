@@ -152,6 +152,17 @@ class LaunchPorts(unittest.TestCase):
             self.assertEqual(h.app_ports(), {"db": 5434, "api": 8101}, "the scan has not seen the API yet; {url:api} must not fall back to its saved port")
 
 
+class SharedPort(unittest.TestCase):
+    def test_two_servers_on_one_port_are_flagged_and_the_older_named(self):
+        rows = [{"pid": 1, "port": 5173, "title": "web", "addresses": ["127.0.0.1"], "uptime": 180000, "id": "1:5173"},
+                {"pid": 2, "port": 5173, "title": "web", "addresses": ["::1"], "uptime": 90000, "id": "2:5173"},
+                {"pid": 3, "port": 8000, "title": "api", "addresses": ["127.0.0.1"], "uptime": 10, "id": "3:8000"}]
+        Porthaven._mark_twins(rows)
+        self.assertEqual((rows[0]["twins"]["older"], rows[1]["twins"]["older"]), (True, False))
+        self.assertEqual(rows[0]["twins"]["others"][0]["addresses"], ["::1"])
+        self.assertNotIn("twins", rows[2])
+
+
 class MemoryTrend(unittest.TestCase):
     def series(self, f, minutes=120):
         return [(i * 60.0, f(i)) for i in range(minutes)]

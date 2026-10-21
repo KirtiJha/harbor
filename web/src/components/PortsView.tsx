@@ -317,6 +317,9 @@ function Empty({ filter, query }: { filter: Filter; query: string }) {
 /** Badges in order of importance; the row shows the first few and folds the rest into "+n". */
 function badges(l: Listener): { key: string; label: string; node: ReactNode }[] {
   const out: { key: string; label: string; node: ReactNode }[] = [];
+  if (l.twins) out.push({ key: "twins", label: `another server on :${l.port}`, node: (
+    <Badge tone="warn" title={`Another server also listens on :${l.port} (pid ${l.twins.others.map((o) => o.pid).join(", ")}). One is on IPv4, the other on IPv6, so localhost:${l.port} reaches either one.`}>
+      <Icon name="warn" size={11} />{l.twins.older ? "older duplicate" : "duplicate"} :{l.port}</Badge>) });
   if (l.shares?.length) out.push({ key: "share", label: "shared", node: (
     <Badge tone="accent" title={l.shares.map((x) => x.url).join("\n")}><Icon name="share" size={11} />{l.shares.some((x) => x.mode === "public") ? "public" : "shared"}</Badge>) });
   if (l.agent && !l.agent.alive) out.push({ key: "agent", label: `left by ${l.agent.label}`, node: (

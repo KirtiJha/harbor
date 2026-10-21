@@ -61,7 +61,7 @@ class Scanner:
         out = []
         if st.st_size <= MAX_BYTES:
             try:
-                text = path.read_text(errors="replace")
+                text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 text = ""
             for i, line in enumerate(text.splitlines()):

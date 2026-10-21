@@ -96,7 +96,7 @@ def _compose(d):
     if not f:
         return []
     try:
-        svcs = compose.parse(f.read_text(errors="replace"))
+        svcs = compose.parse(f.read_text(encoding="utf-8", errors="replace"))
     except OSError:
         return []
     return [{"name": name, "script": f"compose: {name}", "command": compose.command(f.name, name),

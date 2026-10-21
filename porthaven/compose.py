@@ -132,7 +132,7 @@ def services(file):
             return res
     except (ComposeError, OSError, subprocess.TimeoutExpired, ValueError):
         pass
-    return parse(file.read_text(errors="replace"))
+    return parse(file.read_text(encoding="utf-8", errors="replace"))
 
 
 def parse_labels(text):

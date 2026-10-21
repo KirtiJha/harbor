@@ -187,7 +187,7 @@ class LogSearch(unittest.TestCase):
     def test_log_files_are_dated_by_their_run(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d, "a.log")
-            p.write_text("── 2026-10-21 09:00:00  $ npm run dev\nready\nError: boom\n")
+            p.write_text("── 2026-10-21 09:00:00  $ npm run dev\nready\nError: boom\n", encoding="utf-8")
             lines = logsearch.file_lines(p)
             self.assertEqual(lines[2]["text"], "Error: boom")
             self.assertEqual(time.strftime("%H:%M", time.localtime(lines[2]["t"])), "09:00")

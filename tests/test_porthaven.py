@@ -335,7 +335,8 @@ class _Live(unittest.TestCase):
     def tearDownClass(cls):
         cls.h.shutdown_apps()
         cls.h.stop()
-        cls.home.cleanup()
+        # Windows may keep a just-stopped app's log file open for a moment; a leftover temp folder is harmless.
+        __import__("shutil").rmtree(cls.home.name, ignore_errors=True)
 
     @classmethod
     def call(cls, method, path, body=None, host=None, token=True):

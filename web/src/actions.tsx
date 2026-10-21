@@ -306,7 +306,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
       } catch (e) { fail(e); return null; }
     }
 
-    return { saveWorkspace, restoreWorkspace, deleteWorkspace, importToml, exportToml, runInWorktree, killMany, group, exportApps, importApps, kill, restart, open, copyUrl, copyText, meta, saveApp, reveal, probe, startApp, stopApp, restartApp, deleteApp, fail, toast };
+    return { saveWorkspace, restoreWorkspace, deleteWorkspace, importToml, exportToml, runInWorktree, killMany, group, exportApps, importApps, kill, restart, restartFrom, open, copyUrl, copyText, meta, saveApp, reveal, probe, startApp, stopApp, restartApp, deleteApp, fail, toast };
   }, [toast, confirm, onEditApp]);
 }
 

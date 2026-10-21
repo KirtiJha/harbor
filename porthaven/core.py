@@ -95,6 +95,7 @@ class Porthaven:
         self.roots = {}
         self.conns = {}
         self.last_events = []
+        self.stopped = collections.OrderedDict()   # pid -> (time, listener row) for apps stopped from Porthaven, so they can run again
 
     # ------------------------------------------------------------ scanning
 
@@ -174,6 +175,9 @@ class Porthaven:
                     events.append(self._event("closed", prev[key], self.procs_prev))
             for key in prev.keys() - found.keys():
                 self.first_seen.pop(key, None)
+                shown = self._row_for_pid(key[0])   # last published row: lets Restart run a server that stopped by itself
+                if shown and shown["port"] == key[1] and key[0] not in self.stopped:
+                    self._remember_stopped(key[0], shown)
             self.procs_prev = procs
             for (pid, _port) in found:
                 p = procs.get(pid)
@@ -666,8 +670,11 @@ class Porthaven:
 
     # ------------------------------------------------------------ actions
 
-    def _row_for_pid(self, pid):
-        return next((r for r in (self.snapshot or {}).get("listeners", []) if r["pid"] == pid), None)
+    def _row_for_pid(self, pid, stopped=False):
+        row = next((r for r in (self.snapshot or {}).get("listeners", []) if r["pid"] == pid), None)
+        if row is None and stopped and pid in self.stopped:
+            row = self.stopped[pid][1]
+        return row
 
     def kill(self, pid, mode="process", force=True, confirm=False, actor=None):
         procs = self.procs
@@ -687,6 +694,8 @@ class Porthaven:
             raise ControlError(f"Process {pid} belongs to another user; stopping it needs sudo, which Porthaven never uses.", status=403)
         if risk in ("system", "app") and not confirm:
             raise ControlError("This is a desktop app or a system service. Confirm to stop it.", status=409, needsConfirm=risk)
+        if row:   # before signalling: the scan can drop the port while the stop still waits for the processes to exit
+            self._remember_stopped(pid, row)
         m = self.managed_for(pid)
         if m:
             m.stopping = True   # stopped on purpose from Porthaven: not a crash
@@ -701,6 +710,12 @@ class Porthaven:
         pids = [x for x in pids if x not in self.self_pids and procs.get(x, {}).get("uid") == self.uid]
         res = signal_and_wait(pids, grace=float(self.store.settings["graceSeconds"]), force=force)
         return self._after_kill(res, pid, mode, row, actor)
+
+    def _remember_stopped(self, pid, row):
+        """Keep the row of an app stopped from Porthaven for an hour, so Restart can run it again once its port is gone."""
+        self.stopped[pid] = (time.time(), row)
+        while len(self.stopped) > 50 or time.time() - next(iter(self.stopped.values()))[0] > 3600:
+            self.stopped.popitem(last=False)
 
     def _after_kill(self, res, pid, mode, row, actor=None):
         ev = {"id": f"{time.time():.6f}-kill-{pid}", "ts": time.time(), "type": "killed", "pid": pid,
@@ -899,17 +914,19 @@ class Porthaven:
         return self.start_app(app_id, port=port, force=True)
 
     def app_from_process(self, pid, name=None):
-        row = self._row_for_pid(pid)
+        row = self._row_for_pid(pid, stopped=True)
         if not row:
             raise ControlError("That process is not listening on a port any more.", status=404)
+        if row.get("appId") and self.store.app(row["appId"]):
+            return self.store.app(row["appId"])   # Porthaven runs it already: reuse that app, not a copy
         root = row["root"] or {"pid": pid, "args": row["args"], "cwd": row["cwd"]}
         cwd = root.get("cwd") or row["cwd"]
         if not cwd:
             raise ControlError("Porthaven could not read that process's folder, so it cannot run it again.")
+        command = classify.rerunnable(root["args"])
         for a in self.store.apps():
-            if realpath(a["cwd"]) == realpath(cwd) and a["command"] == root["args"]:
+            if realpath(a["cwd"]) == realpath(cwd) and a["command"] in (root["args"], command):
                 return a
-        command = root["args"]
         if (row["framework"] or {}).get("id") == "vite" and "--port" not in command and root["pid"] == pid:
             command += " --port {port} --strictPort"
         default = (row["project"] or {}).get("name") or row["title"]
@@ -918,10 +935,14 @@ class Porthaven:
     def restart_process(self, pid):
         app = self.app_from_process(pid)
         row = self._row_for_pid(pid)
-        self.kill(pid, mode="app", confirm=True)
-        for _ in range(50):
-            if probe.port_free(row["port"]):
-                break
+        if row:
+            self.kill(pid, mode="app", confirm=True)
+        else:   # already stopped (or still stopping): run it again once the port is released
+            row = self._row_for_pid(pid, stopped=True)
+            if row.get("risk") in ("self", "foreign", "system", "app"):
+                raise ControlError("Porthaven only runs again the dev servers it shows as yours.", status=403)
+        deadline = time.time() + float(self.store.settings["graceSeconds"]) + 5   # a stop may wait out the grace period
+        while time.time() < deadline and not probe.port_free(row["port"]):
             time.sleep(0.1)
         return {"app": app, "run": self.start_app(app["id"], force=True)}
 

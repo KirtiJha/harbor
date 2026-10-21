@@ -189,6 +189,24 @@ class NewRules(unittest.TestCase):
             c = h.store.upsert_app({"name": "API", "cwd": d, "command": "z", "slug": "api"})
             self.assertEqual(h.app_slugs(), {a["id"]: "web", b["id"]: "web-2", c["id"]: "api"})
 
+    def test_npx_commands_run_again_with_their_arguments(self):
+        self.assertEqual(classify.rerunnable("npm exec vite --port 5174"), "npm exec -- vite --port 5174")
+        self.assertEqual(classify.rerunnable("npm exec -- vite --port 5174"), "npm exec -- vite --port 5174")
+        self.assertEqual(classify.rerunnable("npm run dev"), "npm run dev")
+
+    def test_an_app_stopped_from_porthaven_can_run_again(self):
+        with tempfile.TemporaryDirectory() as d:
+            h = Porthaven(Store(d))
+            h.snapshot = {"listeners": []}   # the port is gone from the scan
+            row = {"pid": 4242, "port": 5174, "title": "Docs", "args": "node vite --port 5174", "cwd": d, "framework": {"id": "vite"},
+                   "project": {"name": "docs"}, "appId": None, "root": {"pid": 4240, "args": "npm exec vite --port 5174", "cwd": d}}
+            h._remember_stopped(4242, row)
+            app = h.app_from_process(4242)
+            self.assertEqual((app["name"], app["cwd"], app["command"], app["port"]), ("docs", d, "npm exec -- vite --port 5174", 5174))
+            self.assertEqual(h.app_from_process(4242)["id"], app["id"], "asking again reuses the saved app")
+            with self.assertRaises(Exception):
+                h.app_from_process(9999)
+
     def test_idle_needs_hours_without_connections_or_cpu(self):
         with tempfile.TemporaryDirectory() as d:
             h = Porthaven(Store(d))

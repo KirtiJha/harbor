@@ -1095,6 +1095,10 @@ class Porthaven:
         for spec in apps:
             spec["dependsOn"] = [key_to_slug.get(d, d) for d in spec.get("dependsOn") or []]
             existing = next((a for a in self.store.apps() if (a.get("source") or {}) == spec["source"]), None)
+            if not existing:   # an app saved by hand for the same folder and name becomes this file's app instead of a twin
+                existing = next((a for a in self.store.apps() if not a.get("source")
+                                 and realpath(a["cwd"]) == realpath(spec["cwd"])
+                                 and (a.get("slug") == spec["slug"] or a["name"].lower() == spec["name"].lower())), None)
             if existing:
                 saved = self.store.upsert_app(spec, existing["id"])
                 updated.append(saved["name"])

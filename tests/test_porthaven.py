@@ -699,7 +699,10 @@ port = {p2}
 depends_on = ["backend"]
 env = {{ UPSTREAM = "{{url:backend}}" }}
 """)
+        _, by_hand = self.call("POST", "/api/apps", {"name": "Backend", "slug": "backend", "cwd": self.home.name, "command": "old"})
         status, res = self.call("POST", "/api/teamfile/up", {"path": self.home.name})
+        self.assertEqual(res["updated"], ["Backend"], "an app saved by hand for the same folder must be adopted, not duplicated")
+        self.assertIn(by_hand["id"], res["ids"])
         self.assertEqual((status, res["order"]), (200, ["Backend", "Frontend"]), res)
         ids = res["ids"]
         self._up_or_skip(lambda: all(self._app(i)["state"] == "running" and self._app(i)["ports"] for i in ids), "the stack did not come up")

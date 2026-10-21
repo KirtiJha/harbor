@@ -5,6 +5,29 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Port map:** every port on one line above the table, with neighbours close together and big jumps broken. Saved
+  apps that are not running hold a dashed place, a port another process took from a saved app is marked, and the
+  next free ports near 3000, 5173 and 8000 are one click from the clipboard. Hovering a port highlights its row.
+- **Sortable columns** in Ports: port, name, HTTP response time, uptime, CPU and memory.
+- An **HTTP column** with each server's status and response time, and a memory bar that shows at a glance which
+  server holds the most.
+- A port that stops listening stays in the table for a few seconds as **stopped, with Restart**.
+- Project headers show the folder, the memory the project holds, and buttons to open it in your editor or a
+  terminal, or stop everything in it.
+- The Ports table can be used from the keyboard with a screen reader (grid semantics, a focused row that follows
+  `j`/`k`, `Home`/`End`), and adapts to narrow windows instead of scrolling sideways.
+
+### Changed
+- The process command, pid and launcher moved under each server's name; badges are ordered by importance and the
+  rest fold into `+n`, so long names are no longer cut off.
+
+### Fixed
+- **Restart after stopping** a server (from the toast) ran nothing: Porthaven looked for the process it had just
+  stopped. It now remembers stopped servers, including ones that stopped by themselves.
+- Restarting or saving a server started with `npx` ran `npm exec vite --port 5174`, which hands `--port` to npm;
+  it now runs `npm exec -- vite --port 5174`.
+
 ## [2.0.0] - 2026-10-20
 
 Harbor is now **Porthaven**, with a new logo.

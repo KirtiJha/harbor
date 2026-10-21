@@ -252,6 +252,14 @@ def ancestors(pid, procs):
     return out
 
 
+def rerunnable(args):
+    """A launcher's command line as it can be typed again. npx shows up in the process table as `npm exec vite --port 1`,
+    and run like that npm takes --port for itself; `npm exec -- vite --port 1` hands it to vite."""
+    if args and args.startswith("npm exec ") and not args.startswith("npm exec -- ") and " -- " not in args:
+        return "npm exec -- " + args[len("npm exec "):]
+    return args
+
+
 def display_command(args, limit=None):
     """A short, readable command: node_modules/.bin paths and interpreter paths trimmed."""
     s = args or ""

@@ -65,6 +65,9 @@ The tour of every feature is at http://localhost:7475/welcome.
 - **Network warnings** for anything reachable from other devices, with the Wi-Fi URL for phone testing.
 - **Forgotten servers.** Dev servers with no connections and no CPU for hours are flagged, with the memory
   they hold.
+- **Port map.** Every port on one line: neighbours together, saved apps that are not running, ports taken from a
+  saved app, and the next free ports one click away.
+- **Sort and scan.** Sort by port, name, response time, uptime, CPU or memory; a memory bar shows what holds the most.
 - **Search, filters and pins.** Search on port, project, command and notes; `:51` finds ports starting with 51.
 - **Docker-aware.** Published container ports show the container and image.
 
@@ -73,6 +76,7 @@ The tour of every feature is at http://localhost:7475/welcome.
   (`make`, `npm`, shells, reloaders) and stops the whole tree. It stops at your terminal, editor or agent.
 - **Graceful first.** SIGTERM (or `taskkill`) first; force only after a grace period you choose.
 - **Bulk stop** of several ports or apps, and a one-click clean-up of idle servers.
+- **Changed your mind?** A server that stops stays in the list for a few seconds with a Restart button.
 - **Guard rails.** No sudo, ever. Porthaven won't stop itself, other users' processes, or anything it doesn't show.
   System services and desktop apps need you to type the port number to confirm.
 

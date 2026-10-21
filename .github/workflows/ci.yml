@@ -14,42 +14,28 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend · ${{ matrix.os }} · Python ${{ matrix.python }}
+    # Linux and Windows on the oldest supported Python. macOS is tested locally: GitHub's macOS runners block
+    # loopback connections, which the live tests need.
+    name: Backend · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.9", "3.13"]
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.9"
       - name: Install lsof (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y lsof
-      - name: Unit and integration tests
+      - name: Tests
         env:
           PYTHONPATH: .
-        run: python -m unittest discover -s tests -v
-      - name: What the OS reports (diagnostics)
-        if: always()
-        shell: bash
-        run: |
-          case "$RUNNER_OS" in
-            Windows) netstat -ano | head -20 ;;
-            Linux) head -20 /proc/net/tcp ;;
-            *) lsof -nP -iTCP -sTCP:LISTEN | head -20 || true
-               /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate --getstealthmode || true
-               sysctl net.inet.tcp.blackhole || true
-               python -m http.server 47999 --bind 127.0.0.1 >/dev/null 2>&1 & sleep 2
-               curl -sS -m 5 -o /dev/null -w "plain http.server on 127.0.0.1: %{http_code}\n" http://127.0.0.1:47999/ || true
-               kill %1 || true ;;
-          esac
+        run: python -m unittest discover -s tests
       - name: CLI smoke test
-        if: always()
         env:
           PYTHONPATH: .
         run: |

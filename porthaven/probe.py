@@ -6,6 +6,7 @@ import os
 import http.client
 import re
 import socket
+import ssl
 import time
 
 TITLE = re.compile(rb"<title[^>]*>(.*?)</title>", re.I | re.S)
@@ -16,20 +17,33 @@ APP_NAME = re.compile(rb'<meta[^>]+(?:name|property)=["\'](?:application-name|og
 
 
 def probe(port, host=None, timeout=1.5, path="/"):
-    """Ask over IPv4 first, then IPv6: servers that bind `localhost` (Vite, Node 18+) often listen on ::1 only."""
+    """Ask over IPv4 first, then IPv6: servers that bind `localhost` (Vite, Node 18+) often listen on ::1 only.
+    A port that hangs up on plain HTTP is asked again over HTTPS (vite --https, Porthaven's own :7443)."""
     if host:
-        return _probe(port, host, timeout, path)
-    first = _probe(port, "127.0.0.1", timeout, path)
-    if first.get("ok") or first.get("error") != "refused":
-        return first
-    second = _probe(port, "::1", timeout, path)
-    return second if second.get("ok") else first
+        first = _probe(port, host, timeout, path)
+    else:
+        first = _probe(port, "127.0.0.1", timeout, path)
+        if not first.get("ok") and first.get("error") == "refused":
+            second = _probe(port, "::1", timeout, path)
+            first = second if second.get("ok") else first
+    if not first.get("ok") and first.get("error") in ("not HTTP", "ConnectionResetError"):
+        tls = _probe(port, host or "127.0.0.1", timeout, path, https=True)
+        if tls.get("ok"):
+            return tls
+    return first
 
 
-def _probe(port, host, timeout, path):
+def _probe(port, host, timeout, path, https=False):
     started = time.monotonic()
-    result = {"port": port, "url": f"http://localhost:{port}{path}", "checkedAt": time.time()}
-    conn = http.client.HTTPConnection(host, port, timeout=timeout)
+    result = {"port": port, "url": f"{'https' if https else 'http'}://localhost:{port}{path}", "checkedAt": time.time()}
+    if https:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE   # a health check: whether it answers, not whether to trust it
+        conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=ctx)
+        result["tls"] = True
+    else:
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
         conn.request("GET", path, headers={"User-Agent": "Porthaven/1.0 (local port manager)", "Accept": "text/html,*/*"})
         resp = conn.getresponse()
@@ -46,7 +60,7 @@ def _probe(port, host, timeout, path):
             result["title"] = re.sub(r"\s+", " ", title)[:120] or None
         if resp.getheader("x-powered-by"):
             result["poweredBy"] = resp.getheader("x-powered-by")
-    except (http.client.HTTPException, ConnectionError, socket.timeout, OSError) as err:
+    except (http.client.HTTPException, ConnectionError, socket.timeout, ssl.SSLError, OSError) as err:
         result.update({"ok": False, "error": _reason(err), "ms": round((time.monotonic() - started) * 1000)})
     finally:
         conn.close()

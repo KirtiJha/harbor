@@ -441,6 +441,8 @@ class FeaturesLive(base._Live):
         r = c.getresponse()
         self.assertEqual((r.status, r.read()), (200, b"ok -"))
         c.close()
+        from porthaven import probe
+        self.assertTrue(probe.probe(hport).get("tls"), "an HTTPS port must not be reported as down by the plain-HTTP health check")
         self.call("POST", "/api/https/disable", {})
         self.call("POST", f"/api/apps/{app['id']}/stop", {})
 

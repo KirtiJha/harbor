@@ -37,8 +37,8 @@ export function shortPath(p: string | null | undefined, home?: string) {
   return home && p.startsWith(home) ? "~" + p.slice(home.length) : p;
 }
 
-export function url(l: Listener) {
-  return `http://localhost:${l.port}/`;
+export function url(l: Listener, path = "/") {
+  return `${l.probe?.tls ? "https" : "http"}://localhost:${l.port}${path}`;
 }
 
 export function isHttp(l: Listener) {

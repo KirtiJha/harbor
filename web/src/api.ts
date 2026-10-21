@@ -1,6 +1,6 @@
 export type Probe = {
   port: number; url: string; checkedAt: number; ok: boolean; status?: number; reason?: string; server?: string | null;
-  contentType?: string | null; location?: string | null; title?: string | null; poweredBy?: string; ms?: number; error?: string;
+  contentType?: string | null; location?: string | null; title?: string | null; poweredBy?: string; ms?: number; error?: string; tls?: boolean;
 };
 
 export type GitInfo = { branch: string | null; worktree: boolean; root: string; repo: string } | null;

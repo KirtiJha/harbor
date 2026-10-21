@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type App, type Body, type ProxyRequest, type RequestDetail, type Snapshot, type Worktree } from "../api";
 import type { Actions } from "../actions";
 import { useLocal } from "../usePorthaven";
-import { ago, clock, colorFor, cx, shortPath } from "../util";
+import { ago, clock, colorFor, cx, shortPath, url } from "../util";
 import { Icon } from "./Icon";
 import { LogView } from "./LogView";
 import { DriftItem } from "./Side";
@@ -216,7 +216,7 @@ function AppDetail({ a, snap, actions, onEdit }: { a: App; snap: Snapshot; actio
         </div>
         <div className="flex flex-wrap gap-2">
           {listeners.filter((l) => l.probe?.ok).slice(0, 2).map((l) => (
-            <Button key={l.port} size="sm" variant="soft" icon="external" onClick={() => window.open(`http://localhost:${l.port}${a.openPath || "/"}`, "_blank", "noopener")}>:{l.port}</Button>
+            <Button key={l.port} size="sm" variant="soft" icon="external" onClick={() => window.open(url(l, a.openPath || "/"), "_blank", "noopener")}>:{l.port}</Button>
           ))}
           {live ? <>
             <Button size="sm" icon="restart" onClick={() => void actions.restartApp(a)}>Restart</Button>

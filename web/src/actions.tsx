@@ -78,7 +78,7 @@ export function useActions(onEditApp?: (a: Partial<App>) => void) {
     }
 
     function open(l: Listener, path = "/") {
-      window.open(`http://localhost:${l.port}${path}`, "_blank", "noopener");
+      window.open(url(l, path), "_blank", "noopener");
     }
 
     async function copyUrl(l: Listener) {

@@ -11,7 +11,7 @@ import time
 
 from pathlib import Path
 
-from . import stacks, system
+from . import logsearch, stacks, system
 from .system import is_alive
 
 ANSI_OSC = re.compile(r"\x1b\][^\x07]*\x07")
@@ -98,10 +98,12 @@ class Managed:
     """One launch of a saved app. The app writes straight to its log file in its own session, so it keeps
     running when Porthaven stops or restarts; Porthaven follows the file and picks the app up again on start."""
 
-    def __init__(self, app, port, log_path, on_exit, run_dir, adopt=None, wired=None):
+    def __init__(self, app, port, log_path, on_exit, run_dir, adopt=None, wired=None, agent=None):
         self.app_id = app["id"]
         self.name = app.get("name") or app["id"]
         self.lines = collections.deque(maxlen=4000)
+        self.errors = collections.deque(maxlen=200)   # (time, seq, text) of lines that look like errors
+        self.agent = agent                            # the coding-agent session that asked for this run, if any
         self.seq = 0
         self.cond = threading.Condition()
         self.exit_code = None
@@ -115,6 +117,7 @@ class Managed:
         if adopt:
             self.pid, self.port, self.command = adopt["pid"], adopt.get("port"), adopt["command"]
             self.cwd, self.started_at, self.status = adopt.get("cwd"), adopt["startedAt"], "running"
+            self.agent = adopt.get("agent")
             size = log_path.stat().st_size if log_path.exists() else 0
             self.offset = max(adopt.get("offset", 0), size - 200_000)
             self._add(f"Porthaven restarted; {self.name} kept running (pid {self.pid})", "porthaven")
@@ -164,13 +167,20 @@ class Managed:
     def _save_run(self):
         self.run_file.parent.mkdir(parents=True, exist_ok=True)
         self.run_file.write_text(json.dumps({"pid": self.pid, "port": self.port, "command": self.command, "cwd": self.cwd,
-                                             "startedAt": self.started_at, "offset": self.offset}))
+                                             "startedAt": self.started_at, "offset": self.offset, "agent": self.agent}))
 
     def _add(self, text, stream="out"):
         with self.cond:
             self.seq += 1
-            self.lines.append({"seq": self.seq, "t": time.time(), "text": text, "stream": stream})
+            now = time.time()
+            self.lines.append({"seq": self.seq, "t": now, "text": text, "stream": stream})
+            if stream == "out" and logsearch.is_error(text):
+                self.errors.append((now, self.seq, logsearch.ANSI.sub("", text)[:300]))
             self.cond.notify_all()
+
+    def recent_errors(self, seconds=600, now=None):
+        now = now or time.time()
+        return [e for e in list(self.errors) if now - e[0] <= seconds]
 
     def _follow(self):
         buf = b""
@@ -225,7 +235,8 @@ class Managed:
 
     def summary(self):
         return {"pid": self.pid, "status": self.status, "exitCode": self.exit_code, "startedAt": self.started_at,
-                "endedAt": self.ended_at, "port": self.port, "command": self.command, "lines": self.seq}
+                "endedAt": self.ended_at, "port": self.port, "command": self.command, "lines": self.seq,
+                "agent": self.agent}
 
     def tail(self, after=0, limit=1000):
         with self.cond:

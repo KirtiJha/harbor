@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api, type Listener, type ProcessDetail, type Snapshot } from "../api";
+import { api, type Interval, type Listener, type ProcessDetail, type Snapshot } from "../api";
 import type { Actions } from "../actions";
 import { ago, cx, duration, health, KIND_LABEL, mb, shortPath } from "../util";
 import { Icon } from "./Icon";
+import { ShareCard, ShareModal } from "./ShareModal";
 import { Badge, Button, Dot, IconButton, inputCls, Sparkline, Spinner } from "./ui";
 
 export function Drawer({ l, snap, actions, onClose, onOpenApp }: { l: Listener; snap: Snapshot; actions: Actions; onClose: () => void; onOpenApp: (id: string) => void }) {
@@ -10,7 +11,9 @@ export function Drawer({ l, snap, actions, onClose, onOpenApp }: { l: Listener; 
   const [label, setLabel] = useState(l.meta.label || "");
   const [note, setNote] = useState(l.meta.note || "");
   const [checking, setChecking] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const locked = l.risk === "self" || l.risk === "foreign";
+  const shareable = !l.risk && ["dev", "service", "other"].includes(l.kind) && !!l.probe?.ok && !l.shareRelay;
   const h = health(l);
   const home = snap.me.home;
 
@@ -54,10 +57,30 @@ export function Drawer({ l, snap, actions, onClose, onOpenApp }: { l: Listener; 
           <Button size="sm" icon="pin" variant={l.meta.pinned ? "soft" : "outline"} onClick={() => void actions.meta(l, { pinned: !l.meta.pinned })}>{l.meta.pinned ? "Pinned" : "Pin"}</Button>
           <Button size="sm" icon="bell" variant={l.meta.watched ? "soft" : "outline"} onClick={() => void actions.meta(l, { watched: !l.meta.watched })}
             title="Notify me when this port goes down or comes back">{l.meta.watched ? "Watching" : "Watch"}</Button>
+          {shareable && <Button size="sm" icon="share" variant={l.shares.length ? "soft" : "outline"} onClick={() => setSharing(true)}
+            title="A link (and QR code) for your phone, or a public link">{l.shares.length ? "Shared" : "Share"}</Button>}
         </div>
       </div>
+      {sharing && <ShareModal l={l} snap={snap} actions={actions} onClose={() => setSharing(false)} />}
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        {l.shares.map((x) => <ShareCard key={x.id} s={x} actions={actions} compact />)}
+        {l.shareRelay && <p className="rounded-xl border border-accent/30 bg-accent-soft/40 px-4 py-3 text-xs text-ink-2">Porthaven's own relay for a shared link. It closes when the share ends.</p>}
+        {l.leak && (
+          <div className="rounded-xl border border-bad/30 bg-bad/5 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-bad"><Icon name="trend" size={15} />Memory keeps growing</div>
+            <p className="mt-1 text-xs text-ink-2">From {mb(l.leak.fromMb)} to {mb(l.leak.toMb)} in {duration(l.leak.minutes * 60)} (about {mb(l.leak.perHour)} an hour), and still rising.</p>
+            <p className="mt-1.5 text-xs text-muted">Usually a leak or a file watcher piling up modules. A restart gives the memory back.</p>
+            <Button size="sm" variant="soft" icon="restart" className="mt-2" onClick={() => { const a = l.managed ? snap.apps.find((x) => x.id === l.managed) : null; void (a ? actions.restartApp(a) : actions.restart(l)); }}>Restart it</Button>
+          </div>
+        )}
+        {l.agent && (
+          <div className={cx("rounded-xl border px-4 py-3", l.agent.alive ? "border-line" : "border-warn/40 bg-warn/5")}>
+            <div className={cx("flex items-center gap-2 text-sm font-semibold", l.agent.alive ? "text-ink" : "text-warn")}><Icon name="robot" size={15} />Started by {l.agent.label}</div>
+            <p className="mt-1 text-xs text-muted">{l.agent.alive ? <>That session (pid {l.agent.pid}) is still running.</> :
+              <>That session ended {l.agent.endedAt ? ago(l.agent.endedAt) : ""} and left this server running. Stop it if nobody needs it.</>}</p>
+          </div>
+        )}
         {l.exposureRisk && (
           <div className={cx("rounded-xl border px-4 py-3", l.exposureRisk.level === "medium" ? "border-warn/30 bg-warn/5" : "border-bad/40 bg-bad/10")}>
             <div className={cx("flex items-center gap-2 text-sm font-semibold", l.exposureRisk.level === "medium" ? "text-warn" : "text-bad")}>
@@ -93,6 +116,7 @@ export function Drawer({ l, snap, actions, onClose, onOpenApp }: { l: Listener; 
           <Section title="Other addresses" icon="external">
             <div className="space-y-1.5">
               {l.stableUrl && <UrlRow label="Stable name" hint="Always reaches this app, whatever port it is on" url={l.stableUrl} actions={actions} />}
+              {l.stableHttpsUrl && <UrlRow label="Stable name, HTTPS" hint="With a certificate from Porthaven's local CA" url={l.stableHttpsUrl} actions={actions} />}
               {l.lanUrl && <UrlRow label="From your phone" hint="Same Wi-Fi network" url={l.lanUrl} actions={actions} />}
             </div>
           </Section>
@@ -222,20 +246,49 @@ function UrlRow({ label, hint, url, actions }: { label: string; hint: string; ur
 }
 
 function History({ port, snap }: { port: number; snap: Snapshot }) {
-  const items = snap.activity.filter((a) => a.port === port).slice(-8).reverse();
-  if (!items.length) return null;
+  const [rows, setRows] = useState<Interval[] | null>(null);
+  const [at, setAt] = useState("");
+  const [found, setFound] = useState<{ at: number | null; intervals: Interval[] } | null>(null);
+  const [err, setErr] = useState("");
+  const opened = snap.activity.filter((a) => a.port === port).length;
+  useEffect(() => {
+    let live = true;
+    api.history(port).then((r) => live && setRows(r.intervals)).catch(() => live && setRows([]));
+    return () => { live = false; };
+  }, [port, opened]);
+  const ask = async () => {
+    if (!at.trim()) { setFound(null); return; }
+    try { const r = await api.history(port, at); setFound(r); setErr(""); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setFound(null); }
+  };
+  const list = found ? found.intervals : (rows || []).slice(0, 8);
   return (
     <Section title={`History of :${port}`} icon="activity">
-      <ol className="space-y-1 text-xs">
-        {items.map((e) => (
-          <li key={e.id} className="flex items-center gap-2">
-            <Dot tone={e.type === "opened" || e.type === "ready" || e.type === "started" ? "ok" : e.type === "crashed" ? "bad" : "muted"} />
-            <span className="truncate text-ink-2">{e.title}</span>
-            <span className="text-faint">{e.type}</span>
-            <span className="ml-auto shrink-0 text-[11px] text-faint">{ago(e.ts)}</span>
-          </li>
-        ))}
-      </ol>
+      <form className="mb-2 flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
+        <input className={cx(inputCls, "h-8 py-1 text-xs")} value={at} onChange={(e) => { setAt(e.target.value); if (!e.target.value) setFound(null); }}
+          placeholder="What was here at… (yesterday 3pm, 2h ago, 14:30)" />
+        <Button size="sm" type="submit" className="h-8">Look</Button>
+      </form>
+      {err && <p className="mb-1 text-[11px] text-bad">{err}</p>}
+      {found && <p className="mb-1 text-[11px] text-muted">At {found.at ? new Date(found.at * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "that time"}: {found.intervals.length ? "" : "nothing was listening."}</p>}
+      {rows === null ? <p className="text-xs text-muted"><Spinner size={10} /> Reading history…</p> : list.length === 0 && !found ? <p className="text-xs text-muted">Nothing recorded yet. Porthaven keeps 30 days.</p> : (
+        <ol className="space-y-1 text-xs">
+          {list.map((iv) => (
+            <li key={`${iv.pid}-${iv.start}`} className="flex items-center gap-2">
+              <Dot tone={iv.end ? "muted" : "ok"} />
+              <span className="truncate text-ink-2" title={iv.command}>{iv.title || iv.command || `pid ${iv.pid}`}{iv.project && iv.project !== iv.title ? <span className="text-faint"> · {iv.project}</span> : null}</span>
+              <span className="ml-auto shrink-0 text-[11px] text-faint" title={`${new Date(iv.start * 1000).toLocaleString()} → ${iv.end ? new Date(iv.end * 1000).toLocaleString() : "now"}`}>
+                {iv.end ? `${span(iv.start)} → ${span(iv.end)}` : `since ${span(iv.start)}`}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
     </Section>
   );
+}
+
+function span(ts: number) {
+  const d = new Date(ts * 1000);
+  const today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
 }

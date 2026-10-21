@@ -27,7 +27,7 @@ except OSError:
 
 rows = [r for r in snap["listeners"] if r["kind"] not in ("system", "app")]
 s = snap["summary"]
-alert = s.get("critical", 0) + len(s.get("watchedDown", []))
+alert = s.get("critical", 0) + len(s.get("watchedDown", [])) + s.get("leaks", 0) + s.get("agentLeftovers", 0) + s.get("drift", 0)
 print(f"{'⚠️' if alert else '⚓'} {len({r['port'] for r in rows})}")
 print("---")
 if alert:
@@ -37,6 +37,15 @@ if alert:
             print(f":{r['port']} {risk['title']} | color=#f87171")
     for p in s.get("watchedDown", []):
         print(f":{p} is down (watched) | color=#fbbf24")
+    for r in rows:
+        if r.get("leak"):
+            print(f":{r['port']} {r['title'][:24]} memory +{r['leak']['growthMb']} MB, still growing | color=#fb7185")
+    if s.get("agentLeftovers"):
+        print(f"{s['agentLeftovers']} server(s) left by coding agents | color=#fbbf24")
+        print(f"-- Stop them | bash={CLI} param1=agents param2=--stop terminal=false refresh=true")
+    for f in (snap.get("drift") or {}).get("findings", []):
+        if f["level"] == "warn":
+            print(f"{f['title'][:70]} | color=#fbbf24")
     print("---")
 for r in sorted(rows, key=lambda r: r["port"]):
     status = (r.get("probe") or {}).get("status")

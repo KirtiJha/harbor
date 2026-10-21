@@ -10,6 +10,13 @@
   porthaven init [dir]          write a porthaven.toml from your saved apps or the projects found there
   porthaven start|stop <app>    start (with its dependencies) or stop a saved app
   porthaven mcp                 Model Context Protocol server for coding agents (Claude Code, Cursor, …)
+  porthaven history <port> [--at "yesterday 3pm"]   who held a port, and when
+  porthaven map                 which local services talk to which
+  porthaven drift [--fix]       config files that point at a port where the service no longer is
+  porthaven logs <text> [--errors] [--app NAME]     search every saved app's output
+  porthaven share <port> [--public] [--minutes N]   a link (and QR code) for your phone, or a public one
+  porthaven agents [--stop]     servers coding agents started and left running
+  porthaven https setup|trust|status|off            trusted https://<name>.localhost for stable names
   porthaven service install     start Porthaven at login (macOS, Linux, Windows); `uninstall` / `status`
 """
 from __future__ import annotations
@@ -60,6 +67,22 @@ def cmd_ls(args):
     _, snap, rows = snapshot(args.all)
     if args.json:
         print(json.dumps(rows, indent=1))
+        return 0
+    if args.alfred:   # an Alfred Script Filter: type to filter, Enter opens, ⌘-Enter copies the URL
+        q = (args.query or "").lower()
+        items = []
+        for r in rows:
+            text = f"{r['port']} {r['title']} {(r['project'] or {}).get('name', '')}".lower()
+            if q and q not in text:
+                continue
+            pr = r["probe"] or {}
+            url = f"http://localhost:{r['port']}/"
+            items.append({"uid": str(r["port"]), "title": f":{r['port']}  {r['title']}", "arg": url, "autocomplete": str(r["port"]),
+                          "subtitle": f"{(r['framework'] or {}).get('label', r['kind'])} · http {pr.get('status') or '—'} · pid {r['pid']} · "
+                                      f"{(r['project'] or {}).get('name') or classify.display_command(r['args'], 50)}",
+                          "valid": bool(pr.get("ok")), "mods": {"cmd": {"arg": url, "subtitle": "Copy the URL"},
+                                                               "alt": {"arg": str(r["port"]), "subtitle": f"Stop :{r['port']} (porthaven kill)"}}})
+        print(json.dumps({"items": items or [{"title": "Nothing is listening", "valid": False}]}))
         return 0
     if not rows:
         print("Nothing is listening" + ("" if args.all else " (apart from system services; --all shows them)") + ".")
@@ -248,6 +271,209 @@ def cmd_stop(args):
     return _app_call(args, "stop")
 
 
+def _client():
+    from .client import Client, ensure_server
+    ensure_server(log=lambda m: print(f"{C['dim']}{m}{C['x']}"))
+    return Client("cli")
+
+
+def _fail(err):
+    print(f"{C['r']}{err}{C['x']}")
+    return 2
+
+
+def _when(t):
+    return time.strftime("%a %d %b %H:%M", time.localtime(t)) if t else "now"
+
+
+def cmd_history(args):
+    from .client import Client, ClientError, running
+    from .history import PortHistory, parse_when
+    try:
+        at = parse_when(args.at) if args.at else None
+    except ValueError as err:
+        return _fail(err)
+    if running():
+        from urllib.parse import quote
+        try:
+            res = Client("cli").call("GET", f"/api/ports/{args.port}/history" + (f"?at={quote(args.at)}" if args.at else f"?days={args.days}"))
+        except ClientError as err:
+            return _fail(err)
+        intervals = res["intervals"]
+    else:
+        intervals = PortHistory(Store().root).query(args.port, at=at, since=None if at else time.time() - args.days * 86400)
+    if args.json:
+        print(json.dumps(intervals, indent=1))
+        return 0
+    head = f":{args.port}" + (f" at {_when(at)}" if at else f", last {args.days:g} day(s)")
+    print(f"{C['b']}{head}{C['x']}")
+    if not intervals:
+        hint = classify.PORT_HINTS.get(args.port)
+        print(f"  {C['dim']}nothing recorded" + (f" (port {args.port} is usually {hint})" if hint else "") + f"{C['x']}")
+        return 1
+    for iv in intervals[:args.limit]:
+        span = f"{_when(iv['start'])} → {_when(iv['end']) if iv['end'] else C['g'] + 'still running' + C['x']}"
+        what = iv.get("title") or iv.get("command") or "?"
+        proj = f" {C['dim']}({iv['project']}){C['x']}" if iv.get("project") and iv["project"] != what else ""
+        print(f"  {span:<34} {C['b']}{what}{C['x']}{proj}  {C['dim']}pid {iv['pid']}{' · ' + iv['until'] if iv.get('until') else ''}{C['x']}")
+    return 0
+
+
+def cmd_map(args):
+    from .client import ClientError
+    try:
+        res = _client().call("GET", "/api/map")
+    except ClientError as err:
+        return _fail(err)
+    if args.json:
+        print(json.dumps({k: v for k, v in res.items() if k != "text"}, indent=1))
+        return 0
+    for line in res["text"].splitlines():
+        color = C["r"] if "BROKEN" in line else C["g"] if "open connection" in line else C["dim"]
+        print(f"  {color}{line}{C['x']}")
+    return 0
+
+
+def cmd_drift(args):
+    from .client import ClientError
+    try:
+        c = _client()
+        res = c.call("POST", "/api/drift/scan", {}, timeout=120)
+    except ClientError as err:
+        return _fail(err)
+    found = res["findings"]
+    if not found:
+        print(f"{C['g']}No config file points at a wrong port.{C['x']}")
+        return 0
+    for f in found:
+        color = C["y"] if f["level"] == "warn" else C["dim"]
+        print(f"{color}{'⚠' if f['level'] == 'warn' else '·'} {f['title']}{C['x']}\n    {f['file']}:{f['line']}  {C['dim']}{f['text']}{C['x']}")
+        if args.fix and f.get("fix"):
+            try:
+                out = c.call("POST", "/api/drift/fix", {"id": f["id"]})
+                print(f"    {C['g']}fixed:{C['x']} {out['text']}")
+            except ClientError as err:
+                print(f"    {C['r']}not fixed: {err}{C['x']}")
+        elif f.get("fix"):
+            print(f"    {C['dim']}fix: use :{f['fix']['port']}  (porthaven drift --fix){C['x']}")
+    return 1 if any(f["level"] == "warn" for f in found) and not args.fix else 0
+
+
+def cmd_logs(args):
+    from urllib.parse import urlencode
+    from .client import ClientError
+    try:
+        c = _client()
+        params = {"q": args.text or "", "errors": "1" if args.errors else "0", "regex": "1" if args.regex else "0", "limit": args.n}
+        if args.app:
+            ref = args.app.lower()
+            app = next((a for a in c.state()["apps"] if ref in (a["id"].lower(), (a.get("slugName") or "").lower(), a["name"].lower())), None)
+            if not app:
+                return _fail(f"No saved app “{args.app}”.")
+            params["apps"] = app["id"]
+        res = c.call("GET", "/api/logs/search?" + urlencode(params))
+    except ClientError as err:
+        return _fail(err)
+    for m in reversed(res["matches"]):
+        t = time.strftime("%H:%M:%S", time.localtime(m["t"])) if m["t"] and not m["approx"] else "        "
+        print(f"{C['dim']}{t}{C['x']} {C['c']}{m['app'][:16]:<16}{C['x']} {(C['r'] if m['error'] else '')}{m['text']}{C['x']}")
+    print(f"{C['dim']}{res['total']} line(s){' (showing the newest ' + str(args.n) + ')' if res['truncated'] else ''}{C['x']}")
+    return 0 if res["total"] else 1
+
+
+def _qr_hint(url):
+    print(f"  {C['b']}{url}{C['x']}")
+    print(f"  {C['dim']}The dashboard shows a QR code for it (Ports → :port → Share).{C['x']}")
+
+
+def cmd_share(args):
+    from .client import ClientError
+    try:
+        c = _client()
+        if args.stop:
+            shares = [x for x in c.state()["shares"] if x["port"] == args.port]
+            for x in shares:
+                c.call("DELETE", f"/api/share/{x['id']}")
+            print(f"Stopped {len(shares)} share(s) of :{args.port}.")
+            return 0
+        res = c.call("POST", "/api/share", {"port": args.port, "mode": "public" if args.public else "lan", "minutes": args.minutes},
+                     timeout=60)
+    except ClientError as err:
+        return _fail(err)
+    where = "anyone with the link" if res["mode"] == "public" else "devices on your network"
+    print(f"{C['g']}Sharing :{res['port']} {res['title']}{C['x']} with {where} until {time.strftime('%H:%M', time.localtime(res['expiresAt']))}:")
+    _qr_hint(res["url"])
+    print(f"  {C['dim']}Stop it: porthaven share {res['port']} --stop{C['x']}")
+    return 0
+
+
+def cmd_agents(args):
+    from .client import ClientError
+    try:
+        c = _client()
+        res = c.call("GET", "/api/agents")
+        if args.stop:
+            out = c.call("POST", "/api/agents/stop", {"includeLive": args.all})
+            for k, v in out["results"].items():
+                print(f"  {k}: {v}")
+            print(f"Stopped {out['stopped']}.")
+            return 0
+    except ClientError as err:
+        return _fail(err)
+    if not res["servers"]:
+        print("No servers started by coding agents are running.")
+        return 0
+    for s in res["servers"]:
+        a = s["agent"]
+        state = f"{C['g']}session running{C['x']}" if a["alive"] else f"{C['y']}session ended — left behind{C['x']}"
+        print(f"  :{s['port']:<6} {s['title'][:28]:<28} {a['label']} (pid {a['pid']})  {state}  {C['dim']}{s['memMb']} MB{C['x']}")
+    if res["leftovers"]:
+        print(f"{C['dim']}Stop the ones left behind: porthaven agents --stop{C['x']}")
+    return 0
+
+
+def cmd_https(args):
+    from .client import ClientError
+    from .tls import Authority, TlsError
+    if args.action == "trust":   # in a terminal, so sudo (Linux) and the keychain prompt (macOS) can ask you
+        import subprocess
+        auth = Authority(Store().root)
+        try:
+            auth.ensure_ca()
+        except TlsError as err:
+            return _fail(err)
+        for cmd in auth.trust_commands():
+            print(f"{C['dim']}$ {' '.join(cmd)}{C['x']}")
+            if subprocess.run(cmd).returncode:
+                return _fail(f"{cmd[0]} did not succeed.")
+        print(f"{C['g']}Trusted.{C['x']} Restart your browser; Firefox may need security.enterprise_roots.enabled = true.")
+        return 0
+    try:
+        c = _client()
+        if args.action == "setup":
+            res = c.call("POST", "/api/https/enable", {"port": args.port} if args.port else {}, timeout=60)
+        elif args.action == "off":
+            res = c.call("POST", "/api/https/disable", {})
+        else:
+            res = c.call("GET", "/api/https?refresh=1")
+    except ClientError as err:
+        return _fail(err)
+    st = res.get("status") or {}
+    print(f"HTTPS for stable names: {C['g'] + 'on' + C['x'] + ' (port ' + str(res['port']) + ')' if res['enabled'] else 'off'}")
+    if res.get("error"):
+        print(f"  {C['r']}{res['error']}{C['x']}")
+    if st:
+        trust = "trusted" if st["trusted"] else f"{C['y']}not trusted yet{C['x']}" if st["trusted"] is False else "trust unknown"
+        print(f"  CA: {st['ca']} ({st['source']})  {trust}")
+        if res["enabled"] and st.get("trusted") is False:
+            print(f"  {C['dim']}Trust it once: porthaven https trust{C['x']}")
+    if res["enabled"]:
+        apps = [a for a in c.state()["apps"] if a.get("stableHttpsUrl")][:5]
+        for a in apps:
+            print(f"  {a['stableHttpsUrl']}")
+    return 0
+
+
 def cmd_mcp(args):
     from .mcp import serve_stdio
     return serve_stdio()
@@ -395,7 +621,43 @@ def main(argv=None):
     s = sub.add_parser("ls", help="list listening ports")
     s.add_argument("--all", "-a", action="store_true", help="include system services and desktop apps")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--alfred", action="store_true", help="output an Alfred Script Filter")
+    s.add_argument("query", nargs="?", help="with --alfred: filter text")
     s.set_defaults(fn=cmd_ls)
+    s = sub.add_parser("history", help="who held a port, and when")
+    s.add_argument("port", type=int)
+    s.add_argument("--at", help='a moment: "15:00", "yesterday 3pm", "2h ago", "2026-10-20 15:00"')
+    s.add_argument("--days", type=float, default=7)
+    s.add_argument("-n", "--limit", type=int, default=40)
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_history)
+    s = sub.add_parser("map", help="which local services talk to which")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_map)
+    s = sub.add_parser("drift", help="config files that point at the wrong port")
+    s.add_argument("--fix", action="store_true", help="change each file to the port the service is on now")
+    s.set_defaults(fn=cmd_drift)
+    s = sub.add_parser("logs", help="search every saved app's output")
+    s.add_argument("text", nargs="?")
+    s.add_argument("--errors", action="store_true", help="only lines that look like errors")
+    s.add_argument("--regex", action="store_true")
+    s.add_argument("--app")
+    s.add_argument("-n", type=int, default=200)
+    s.set_defaults(fn=cmd_logs)
+    s = sub.add_parser("share", help="share a dev server on your network (or publicly) for a while")
+    s.add_argument("port", type=int)
+    s.add_argument("--public", action="store_true", help="a public link through cloudflared or ngrok")
+    s.add_argument("--minutes", type=int, default=60)
+    s.add_argument("--stop", action="store_true")
+    s.set_defaults(fn=cmd_share)
+    s = sub.add_parser("agents", help="servers coding agents started and left running")
+    s.add_argument("--stop", action="store_true", help="stop the ones whose agent session has ended")
+    s.add_argument("--all", action="store_true", help="with --stop: also those of sessions still running")
+    s.set_defaults(fn=cmd_agents)
+    s = sub.add_parser("https", help="trusted HTTPS for stable names")
+    s.add_argument("action", choices=["setup", "trust", "status", "off"])
+    s.add_argument("--port", type=int)
+    s.set_defaults(fn=cmd_https)
     s = sub.add_parser("who", help="what is on a port")
     s.add_argument("port", type=int)
     s.set_defaults(fn=cmd_who)

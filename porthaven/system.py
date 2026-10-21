@@ -122,19 +122,43 @@ def parse_established(text, listening_ports):
 
 
 def established(listening_ports):
+    return server_counts(connections(listening_ports), listening_ports)
+
+
+def server_counts(links, listening_ports):
+    """Connections per listening port, counted on the server side only."""
+    wanted, counts = set(listening_ports), {}
+    for c in links:
+        if c["local"][1] in wanted:
+            counts[c["local"][1]] = counts.get(c["local"][1], 0) + 1
+    return counts
+
+
+def parse_connections(text):
+    """lsof -F of established sockets -> [{pid, local: (host, port), remote: (host, port)}]."""
+    out = []
+    for p in parse_lsof_fields(text):
+        for f in p["files"]:
+            local, _, remote = f.get("name", "").partition("->")
+            la, ra = split_address(local), split_address(remote) if remote else None
+            if la and ra:
+                out.append({"pid": p["pid"], "local": la, "remote": ra})
+    return out
+
+
+def connections(listening_ports):
+    """Established TCP connections that touch a listening port on this machine, with the process at each end
+    that Porthaven can see. Both ends of a connection between two local processes appear, one row each."""
     if not listening_ports:
-        return {}
+        return []
+    wanted = set(listening_ports)
     if IS_WINDOWS:
-        counts = parse_netstat(_netstat())["established"]
-        return {p: n for p, n in counts.items() if p in set(listening_ports)}
-    if IS_LINUX:
-        wanted = set(listening_ports)
-        counts = {}
-        for row in _proc_net():
-            if row["state"] == "01" and row["port"] in wanted:
-                counts[row["port"]] = counts.get(row["port"], 0) + 1
-        return counts
-    return parse_established(run([LSOF, "-nP", "-iTCP", "-sTCP:ESTABLISHED", "-Fpn"]), set(listening_ports))
+        rows = parse_netstat(_netstat())["links"]
+    elif IS_LINUX:
+        rows = linux_connections()
+    else:
+        rows = parse_connections(run([LSOF, "-nP", "-iTCP", "-sTCP:ESTABLISHED", "-Fpn"]))
+    return [c for c in rows if c["local"][1] in wanted or c["remote"][1] in wanted]
 
 
 # ---------------------------------------------------------------- processes
@@ -237,7 +261,7 @@ def proc_address(hexaddr):
 
 
 def parse_proc_net(text):
-    """/proc/net/tcp or tcp6 -> [{host, port, state, uid, inode}]. State 0A is LISTEN, 01 ESTABLISHED."""
+    """/proc/net/tcp or tcp6 -> [{host, port, remote, state, uid, inode}]. State 0A is LISTEN, 01 ESTABLISHED."""
     rows = []
     for line in text.splitlines()[1:]:
         parts = line.split()
@@ -245,10 +269,14 @@ def parse_proc_net(text):
             continue
         try:
             host, port = proc_address(parts[1])
+            remote = proc_address(parts[2])
         except ValueError:
             continue
-        rows.append({"host": host, "port": port, "state": parts[3], "uid": int(parts[7]), "inode": int(parts[9])})
+        rows.append({"host": host, "port": port, "remote": remote, "state": parts[3], "uid": int(parts[7]), "inode": int(parts[9])})
     return rows
+
+
+_LINUX = {"at": 0.0, "rows": [], "owners": {}}
 
 
 def _proc_net():
@@ -260,6 +288,22 @@ def _proc_net():
         except OSError:
             pass
     return rows
+
+
+def _linux_sockets():
+    # listeners() and connections() run in the same scan; one pass over /proc serves both.
+    if time.monotonic() - _LINUX["at"] > 0.8:
+        rows = _proc_net()
+        _LINUX["rows"] = rows
+        _LINUX["owners"] = socket_owners({r["inode"] for r in rows if r["state"] in ("0A", "01")})
+        _LINUX["at"] = time.monotonic()
+    return _LINUX["rows"], _LINUX["owners"]
+
+
+def linux_connections():
+    rows, owners = _linux_sockets()
+    return [{"pid": owners[r["inode"]], "local": (r["host"], r["port"]), "remote": r["remote"]}
+            for r in rows if r["state"] == "01" and r["inode"] in owners]
 
 
 def socket_owners(inodes):
@@ -282,8 +326,8 @@ def socket_owners(inodes):
 
 
 def linux_listeners():
-    rows = [r for r in _proc_net() if r["state"] == "0A"]
-    owners = socket_owners({r["inode"] for r in rows})
+    rows, owners = _linux_sockets()
+    rows = [r for r in rows if r["state"] == "0A"]
     out = {}
     for r in rows:
         pid = owners.get(r["inode"])
@@ -311,9 +355,9 @@ def _netstat():
 
 
 def parse_netstat(text):
-    """`netstat -ano` -> {"listen": {(pid, port): row}, "established": {port: count}}.
+    """`netstat -ano` -> {"listen": {(pid, port): row}, "established": {port: count}, "links": [connection]}.
     A listening row has foreign port 0, which also works when Windows prints the state in another language."""
-    listen, est = {}, {}
+    listen, est, links = {}, {}, []
     for line in text.splitlines():
         parts = line.split()
         if len(parts) < 4 or not parts[0].upper().startswith("TCP"):
@@ -329,9 +373,10 @@ def parse_netstat(text):
             shown = "*" if host in ("0.0.0.0", "::") else host
             if shown not in row["addresses"]:
                 row["addresses"].append(shown)
-        elif state == "ESTABLISHED":
+        elif state == "ESTABLISHED" and foreign:
             est[port] = est.get(port, 0) + 1
-    return {"listen": listen, "established": est}
+            links.append({"pid": int(pid), "local": local, "remote": foreign})
+    return {"listen": listen, "established": est, "links": links}
 
 
 CIM_COMMAND = ["powershell", "-NoProfile", "-NonInteractive", "-Command",

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Snapshot } from "../api";
+import { Button } from "./ui";
 import type { Actions } from "../actions";
 import { cx } from "../util";
 import { Icon } from "./Icon";
@@ -10,7 +11,7 @@ export type Command = { id: string; label: string; sub?: string; icon: string; g
 
 export function Palette({ open, onClose, snap, actions, nav }: {
   open: boolean; onClose: () => void; snap: Snapshot; actions: Actions;
-  nav: { go: (tab: "ports" | "apps" | "activity" | "insights") => void; select: (id: string) => void; app: (id: string) => void; newApp: () => void; discover: () => void; theme: () => void; settings: () => void; help: () => void };
+  nav: { go: (tab: "ports" | "apps" | "map" | "logs" | "activity" | "insights") => void; select: (id: string) => void; app: (id: string) => void; newApp: () => void; discover: () => void; theme: () => void; settings: () => void; help: () => void };
 }) {
   const [q, setQ] = useState("");
   const [i, setI] = useState(0);
@@ -32,6 +33,7 @@ export function Palette({ open, onClose, snap, actions, nav }: {
       c.push({ id: `go-${l.id}`, label: `:${l.port}  ${l.title}`, sub: l.project?.name || l.display, icon: l.probe?.ok ? "globe" : "bolt", group: "Ports",
         run: () => { nav.go("ports"); nav.select(l.id); }, keywords: [l.display, l.cwd, l.framework?.label, l.meta.note].join(" ") });
       if (l.probe?.ok) c.push({ id: `open-${l.id}`, label: `Open :${l.port} in browser`, sub: l.title, icon: "external", group: "Open", run: () => actions.open(l), keywords: l.title });
+      if (l.leak) c.push({ id: `leak-${l.id}`, label: `:${l.port} ${l.title} keeps growing in memory`, sub: `+${l.leak.growthMb} MB`, icon: "trend", group: "Attention", run: () => { nav.go("ports"); nav.select(l.id); } });
     }
     for (const a of snap.apps) {
       const live = ["running", "starting", "external"].includes(a.state);
@@ -46,6 +48,8 @@ export function Palette({ open, onClose, snap, actions, nav }: {
     c.push(
       { id: "nav-ports", label: "Go to Ports", icon: "layers", group: "Go", run: () => nav.go("ports") },
       { id: "nav-apps", label: "Go to Apps", icon: "play", group: "Go", run: () => nav.go("apps") },
+      { id: "nav-map", label: "Go to the service map", icon: "map", group: "Go", run: () => nav.go("map") },
+      { id: "nav-logs", label: "Search every app's output", icon: "logs", group: "Go", run: () => nav.go("logs") },
       { id: "nav-activity", label: "Go to Activity", icon: "activity", group: "Go", run: () => nav.go("activity") },
       { id: "nav-insights", label: "Go to Insights", icon: "sparkle", group: "Go", run: () => nav.go("insights") },
       { id: "new-app", label: "Add an app", icon: "plus", group: "Porthaven", run: nav.newApp },
@@ -111,7 +115,7 @@ export function Palette({ open, onClose, snap, actions, nav }: {
 
 export function Help({ open, onClose }: { open: boolean; onClose: () => void }) {
   const rows: [string, string][] = [
-    ["⌘K / Ctrl K", "Command palette"], ["/", "Search ports"], ["1 · 2 · 3 · 4", "Ports · Apps · Activity · Insights"], ["j / k  or  ↑ / ↓", "Move through ports"],
+    ["⌘K / Ctrl K", "Command palette"], ["/", "Search ports"], ["1 – 6", "Ports · Apps · Map · Logs · Activity · Insights"], ["j / k  or  ↑ / ↓", "Move through ports"],
     ["Enter", "Details of the port"], ["o", "Open in browser"], ["c", "Copy URL"], ["p", "Pin to top"], ["w", "Watch (notify when it goes down)"],
     ["x", "Stop the process"], ["Space", "Select for bulk stop"], ["⇧X", "Stop the whole app"], ["n", "Add an app"], ["t", "Light / dark"], ["Esc", "Close"], ["?", "This list"],
   ];
@@ -124,7 +128,7 @@ export function Help({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 }
 
-export function SettingsModal({ open, onClose, settings, onTheme, theme, cli }: { open: boolean; onClose: () => void; settings: Settings; onTheme: (t: string) => void; theme: string; cli?: string }) {
+export function SettingsModal({ open, onClose, settings, onTheme, theme, cli, https }: { open: boolean; onClose: () => void; settings: Settings; onTheme: (t: string) => void; theme: string; cli?: string; https?: Snapshot["me"]["https"] }) {
   const set = (s: Partial<Settings>) => void api.settings(s);
   const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "denied");
   return (
@@ -156,6 +160,23 @@ export function SettingsModal({ open, onClose, settings, onTheme, theme, cli }: 
           </select>
         </Row>
         <Row label="Check desktop apps too" hint="Also send HTTP checks to ports of desktop apps and system services."><Toggle checked={settings.probeApps} onChange={(b) => set({ probeApps: b })} /></Row>
+        <Row label="Servers left by coding agents" hint="When the agent session that started a server ends: tell you, or stop the server once nobody is connected.">
+          <div className="flex items-center gap-1.5">
+            <select className="rounded-lg border border-line-2 bg-panel-2 px-2 py-1 text-xs" value={settings.agentCleanup} onChange={(e) => set({ agentCleanup: e.target.value as Settings["agentCleanup"] })}>
+              <option value="off">Ignore</option><option value="notify">Tell me</option><option value="stop">Stop them</option>
+            </select>
+            {settings.agentCleanup === "stop" && <select className="rounded-lg border border-line-2 bg-panel-2 px-2 py-1 text-xs" value={settings.agentCleanupMinutes} onChange={(e) => set({ agentCleanupMinutes: Number(e.target.value) })}>
+              {[5, 15, 30, 60].map((m) => <option key={m} value={m}>after {m} min</option>)}
+            </select>}
+          </div>
+        </Row>
+        <Row label="Warn when memory keeps growing" hint="A dev server that grew by this much and is still growing is flagged (a leak, or a watcher piling up modules).">
+          <select className="rounded-lg border border-line-2 bg-panel-2 px-2 py-1 text-xs" value={settings.leakMb} onChange={(e) => set({ leakMb: Number(e.target.value) })}>
+            {[[0, "Off"], [250, "250 MB"], [500, "500 MB"], [1000, "1 GB"], [2000, "2 GB"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Row>
+        <Row label="Check config files for wrong ports" hint=".env files, vite/next configs and compose files that name a port the service has moved away from."><Toggle checked={settings.drift} onChange={(b) => set({ drift: b })} /></Row>
+        <HttpsSetup settings={settings} https={https} />
         <Row label="Desktop notifications" hint="For watched ports going down and apps crashing.">
           {perm === "granted" ? <Toggle checked={settings.notify} onChange={(b) => set({ notify: b })} /> :
             <button className="text-xs font-semibold text-accent hover:underline" onClick={() => void Notification.requestPermission().then(setPerm)}>{perm === "denied" ? "Blocked in browser settings" : "Allow notifications"}</button>}
@@ -164,6 +185,47 @@ export function SettingsModal({ open, onClose, settings, onTheme, theme, cli }: 
         <p className="border-t border-line pt-3 text-[11px] text-faint">Saved in ~/.porthaven/state.json. Porthaven listens on 127.0.0.1 only, and every change needs this page’s session token.</p>
       </div>
     </Modal>
+  );
+}
+
+function HttpsSetup({ settings, https }: { settings: Settings; https?: Snapshot["me"]["https"] }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  const [port, setPort] = useState(String(settings.httpsPort || 7443));
+  const st = https?.status;
+  const run = async (what: string, fn: () => Promise<unknown>) => {
+    setBusy(what); setErr("");
+    try { await fn(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
+  };
+  return (
+    <div className="space-y-2 border-t border-line pt-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 font-medium text-ink"><Icon name="lock" size={14} className="text-accent" />HTTPS for stable names</div>
+          <div className="text-xs text-muted">https://&lt;name&gt;.localhost:{https?.port || settings.httpsPort}/ with a certificate from a CA on this machine: for OAuth callbacks, secure cookies and service workers.</div>
+        </div>
+        <Toggle checked={!!https?.enabled} onChange={(b) => void run("toggle", () => (b ? api.httpsEnable(Number(port) || undefined) : api.httpsDisable()))} />
+      </div>
+      {https?.enabled && st && (
+        <div className="rounded-lg border border-line bg-panel-2/50 p-2.5 text-xs">
+          <p className="text-ink-2">CA: <span className="font-mono text-[11px]">{st.ca}</span> {st.source === "mkcert" && <span className="text-faint">(mkcert's)</span>}</p>
+          {st.trusted ? <p className="mt-1 flex items-center gap-1 text-ok"><Icon name="check" size={12} />Trusted by this system. Firefox may need security.enterprise_roots.enabled.</p> : (
+            <div className="mt-1.5 space-y-1.5">
+              <p className="text-warn">Not trusted yet, so browsers will warn. Trust it once (your system asks for permission):</p>
+              <div className="flex gap-1.5">
+                <Button size="sm" variant="primary" icon="lock" busy={busy === "trust"} onClick={() => void run("trust", () => api.httpsTrust())}>Trust the CA</Button>
+                <Button size="sm" variant="ghost" busy={busy === "check"} onClick={() => void run("check", () => api.https(true))}>Check again</Button>
+              </div>
+              <p className="text-[11px] text-faint">Or in a terminal: <span className="font-mono">porthaven https trust</span></p>
+            </div>
+          )}
+        </div>
+      )}
+      {!https?.enabled && (
+        <div className="flex items-center gap-2 text-xs text-muted">Port <input className="h-7 w-20 rounded-md border border-line-2 bg-panel-2 px-2 font-mono text-xs" value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} /></div>
+      )}
+      {(err || https?.error) && <p className="text-xs text-bad">{err || https?.error}</p>}
+    </div>
   );
 }
 

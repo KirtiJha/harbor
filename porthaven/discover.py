@@ -90,13 +90,19 @@ def _python(d):
 
 
 def _compose(d):
-    for f in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"):
-        if (d / f).exists():
-            text = (d / f).read_text(errors="replace")
-            ports = re.findall(r'["\']?(\d{2,5}):\d{2,5}', text)
-            return [{"name": d.name, "script": "compose", "command": "docker compose up", "detail": f,
-                     "port": int(ports[0]) if ports else None, "type": "docker"}]
-    return []
+    """Each service of a docker-compose file, runnable on its own as part of a stack."""
+    from . import compose
+    f = compose.find_file(d)
+    if not f:
+        return []
+    try:
+        svcs = compose.parse(f.read_text(errors="replace"))
+    except OSError:
+        return []
+    return [{"name": name, "script": f"compose: {name}", "command": compose.command(f.name, name),
+             "detail": f"{f.name} · {spec.get('image') or 'build'}" + (" · health check" if spec.get("healthcheck") else ""),
+             "port": (spec.get("ports") or [None])[0], "type": "docker", "compose": {"service": name, "file": f.name}}
+            for name, spec in svcs.items()]
 
 
 def discover(folder, depth=3, limit=200):

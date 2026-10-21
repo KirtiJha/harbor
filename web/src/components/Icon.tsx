@@ -38,6 +38,13 @@ const PATHS: Record<string, string> = {
   note: "M5 4h10l4 4v12H5zM14 4v5h5M8 13h8M8 17h5",
   keyboard: "M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M7 14h10",
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
+  share: "M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8.6 13.5l6.8 4M15.4 6.5l-6.8 4",
+  map: "M5 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM19 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM5 22a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM7 4.5l10 5.2M7 19.5l10-7",
+  robot: "M5 9h14v10H5zM12 5v4M9 13h.01M15 13h.01M9 16h6M2 13v3M22 13v3M12 3h.01",
+  logs: "M4 5h16M4 9h10M4 13h16M4 17h7M17 15l2 2 3-4",
+  wrench: "M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z",
+  qr: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM18 14h2M14 18v2",
+  trend: "M3 17l6-6 4 4 8-8M15 7h6v6",
 };
 
 export function Icon({ name, size = 16, className = "", stroke = 1.8 }: { name: keyof typeof PATHS | string; size?: number; className?: string; stroke?: number }) {

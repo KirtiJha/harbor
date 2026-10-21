@@ -162,8 +162,18 @@ body {
   animation: ghost-out 10s linear forwards;
 }
 
+/* a link on the service map that carries traffic now: dashes flow from caller to callee */
+@keyframes flow {
+  to { stroke-dashoffset: -24; }
+}
+
+.ph-flow {
+  stroke-dasharray: 8 4;
+  animation: flow 0.9s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .row-in, .flash, .pop, .slide-in, .pulse {
+  .row-in, .flash, .pop, .slide-in, .pulse, .ph-flow {
     animation: none;
   }
   .ghost {

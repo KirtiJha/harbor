@@ -12,12 +12,14 @@ import mimetypes
 import re
 import secrets
 import socket
+import ssl
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from . import history, netmap, relay, tls
 from .control import ControlError
 
 WEB = Path(__file__).resolve().parent.parent / "web" / "dist"
@@ -47,7 +49,7 @@ class Api:
         r("PUT", r"/api/apps/(\w+)", self.update_app)
         r("DELETE", r"/api/apps/(\w+)", self.delete_app)
         r("POST", r"/api/apps/(\w+)/start", lambda q, b, i: self.h.start_app(i, b.get("port"), bool(b.get("force")), bool(b.get("takeOver")),
-                                                                         actor=self.actor))
+                                                                         actor=self.actor, session=self.session))
         r("POST", r"/api/apps/(\w+)/stop", lambda q, b, i: self.h.stop_app(i))
         r("POST", r"/api/apps/(\w+)/restart", lambda q, b, i: self.h.restart_app(i))
         r("GET", r"/api/apps/(\w+)/logs", self.logs)
@@ -55,18 +57,40 @@ class Api:
         r("POST", r"/api/discover", lambda q, b: self.h.discover(b.get("folder") or "~", min(5, int(b.get("depth", 3)))))
         r("POST", r"/api/reveal", lambda q, b: self.h.reveal(b["path"], b.get("target", "finder")))
         r("POST", r"/api/docker/stop", lambda q, b: self.h.docker_stop(b["id"]))
-        r("PUT", r"/api/settings", lambda q, b: self.h.store.update_settings(b))
+        r("PUT", r"/api/settings", self.update_settings)
         r("POST", r"/api/kill-many", lambda q, b: self.h.kill_many([int(p) for p in b["pids"]][:100], b.get("mode", "process")))
         r("POST", r"/api/groups/(start|stop)", lambda q, b, action: self.h.group_action(str(b["group"]), action))
         r("GET", r"/api/apps/export", lambda q, b: self.h.export_apps())
         r("GET", r"/api/apps/(\w+)/requests", lambda q, b, i: self.h.app_requests(i))
         r("GET", r"/api/apps/(\w+)/worktrees", lambda q, b, i: self.h.app_worktrees(i))
-        r("POST", r"/api/apps/(\w+)/worktree", lambda q, b, i: self.h.run_in_worktree(i, b["worktree"], bool(b.get("start", True)), actor=self.actor))
+        r("POST", r"/api/apps/(\w+)/worktree", lambda q, b, i: self.h.run_in_worktree(i, b["worktree"], bool(b.get("start", True)), actor=self.actor,
+                                                                                    session=self.session))
+        r("GET", r"/api/apps/(\w+)/requests/(\d+)", lambda q, b, i, rid: self.h.request_detail(i, rid))
+        r("POST", r"/api/apps/(\w+)/requests/(\d+)/replay", lambda q, b, i, rid: self.h.replay_request(i, rid, b))
+        r("GET", r"/api/apps/(\w+)/har", lambda q, b, i: self.h.requests_har(i))
+        r("GET", r"/api/map", lambda q, b: {**(self.h.snapshot or self.h.build())["map"],
+                                           "text": netmap.ServiceMap.describe((self.h.snapshot or self.h.build())["map"])})
+        r("GET", r"/api/ports/(\d+)/history", self.port_history)
+        r("GET", r"/api/logs/search", self.log_search)
+        r("GET", r"/api/drift", lambda q, b: self.h.snapshot["drift"] if self.h.snapshot else {"findings": [], "at": 0})
+        r("POST", r"/api/drift/scan", lambda q, b: self.h.drift_scan())
+        r("POST", r"/api/drift/fix", lambda q, b: self.h.drift_fix(str(b["id"]), b.get("port")))
+        r("POST", r"/api/drift/dismiss", lambda q, b: self.h.drift_dismiss(str(b["id"])))
+        r("POST", r"/api/share", lambda q, b: self.h.share_start(self._port(b["port"]), str(b.get("mode") or "lan"), int(b.get("minutes") or 60),
+                                                                 b.get("tunnel")))
+        r("DELETE", r"/api/share/(\w+)", lambda q, b, i: self.h.share_stop(i))
+        r("GET", r"/api/agents", self.agent_servers)
+        r("POST", r"/api/agents/stop", lambda q, b: self.h.stop_agent_servers(int(b["session"]) if b.get("session") else None,
+                                                                          bool(b.get("includeLive")), actor=self.actor or "cleanup"))
+        r("GET", r"/api/https", lambda q, b: self.h.https_status(refresh=q.get("refresh", ["0"])[0] == "1"))
+        r("POST", r"/api/https/enable", self.https_enable)
+        r("POST", r"/api/https/disable", self.https_disable)
+        r("POST", r"/api/https/trust", lambda q, b: self.h.https_trust())
         r("POST", r"/api/workspaces", lambda q, b: self.h.save_workspace(b.get("name")))
         r("POST", r"/api/workspaces/(\w+)/restore", lambda q, b, i: self.h.restore_workspace(i, bool(b.get("stopOthers")), actor=self.actor))
         r("DELETE", r"/api/workspaces/(\w+)", lambda q, b, i: self.h.delete_workspace(i))
         r("POST", r"/api/teamfile/import", lambda q, b: self.h.import_teamfile(b["path"]))
-        r("POST", r"/api/teamfile/up", lambda q, b: self.h.teamfile_up(b["path"], actor=self.actor))
+        r("POST", r"/api/teamfile/up", lambda q, b: self.h.teamfile_up(b["path"], actor=self.actor, session=self.session))
         r("POST", r"/api/teamfile/down", lambda q, b: self.h.teamfile_down(b["path"]))
         r("GET", r"/api/teamfile/export", lambda q, b: self.h.export_teamfile(q.get("group", [None])[0], q.get("folder", [None])[0]))
         r("GET", r"/api/insights", lambda q, b: self.h.insights(q.get("range", ["24h"])[0]))
@@ -77,6 +101,63 @@ class Api:
     def actor(self):
         """Who made the request, when a client says so (the MCP server sends "agent")."""
         return getattr(self.local, "actor", None)
+
+    @property
+    def session(self):
+        """The coding-agent session an MCP client belongs to (its process id), checked when used."""
+        return getattr(self.local, "session", None)
+
+    def port_history(self, q, b, port):
+        at = q.get("at", [None])[0]
+        try:
+            when = history.parse_when(at) if at else None
+        except ValueError as err:
+            raise ControlError(str(err)) from err
+        days = float(q.get("days", ["7"])[0])
+        return self.h.port_history(self._port(port), at=when, since=None if when else time.time() - days * 86400)
+
+    def log_search(self, q, b):
+        one = lambda k, d="": q.get(k, [d])[0]
+        apps = [a for a in one("apps").split(",") if a]
+        since = float(one("since", "0") or 0) or None
+        return self.h.log_search(one("q"), apps or None, one("regex") == "1", one("case") == "1", one("errors") == "1", since,
+                                 int(one("limit", "500") or 500))
+
+    def agent_servers(self, q, b):
+        rows = self.h.agent_leftovers(include_live=True)
+        keep = ("id", "port", "pid", "title", "memMb", "connections", "agent", "managed", "appId", "uptime")
+        return {"servers": [{k: r.get(k) for k in keep} for r in rows],
+                "leftovers": len([r for r in rows if not r["agent"]["alive"]])}
+
+    def update_settings(self, q, b):
+        if "httpsPort" in b:
+            b["httpsPort"] = self._port(b["httpsPort"])
+        before = dict(self.h.store.settings)
+        out = self.h.store.update_settings(b)
+        if out.get("https") != before.get("https") or (out.get("https") and out.get("httpsPort") != before.get("httpsPort")):
+            stop_https(self.h)
+            if out.get("https"):
+                start_https(self.h, self)
+        self.h._publish()
+        return out
+
+    def https_enable(self, q, b):
+        try:
+            self.h.tls.ensure_ca()
+        except tls.TlsError as err:
+            raise ControlError(str(err)) from err
+        self.h.store.update_settings({"https": True, **({"httpsPort": self._port(b["port"])} if b.get("port") else {})})
+        stop_https(self.h)
+        start_https(self.h, self)
+        if self.h.https.get("error"):
+            raise ControlError(self.h.https["error"])
+        return self.h.https_status(refresh=True)
+
+    def https_disable(self, q, b):
+        self.h.store.update_settings({"https": False})
+        stop_https(self.h)
+        self.h._publish()
+        return self.h.https_status()
 
     def route(self, method, pattern, fn):
         self.routes.append((method, re.compile(f"^{pattern}$"), fn))
@@ -126,6 +207,13 @@ class Api:
             out["sleepAfter"] = max(0, min(24 * 60, int(b["sleepAfter"] or 0)))
         if "wake" in b:
             out["wake"] = bool(b["wake"])
+        if "compose" in b:
+            c = b["compose"] or None
+            if c is not None:
+                if not isinstance(c, dict) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", str(c.get("service") or "")):
+                    raise ControlError("A compose service needs a service name (letters, digits, - _ .).")
+                c = {"service": str(c["service"]), "file": str(c.get("file") or "docker-compose.yml")}
+            out["compose"] = c
         if not partial:
             for k in ("name", "cwd", "command"):
                 if not out.get(k):
@@ -193,7 +281,7 @@ class Api:
         raise ControlError(f"No API route {method} {path}.", status=404)
 
 
-def make_handler(api, porthaven, port):
+def make_handler(api, porthaven, port, scheme="http"):
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
     proxy_host = re.compile(rf"^([a-z0-9][a-z0-9.-]*)\.localhost:{port}$")
 
@@ -246,6 +334,7 @@ def make_handler(api, porthaven, port):
                 body = self._body() if method != "GET" else {}
                 actor = re.sub(r"[^A-Za-z0-9 ()._-]", "", self.headers.get("X-Porthaven-Actor", ""))[:40]
                 api.local.actor = actor or None
+                api.local.session = re.sub(r"[^0-9]", "", self.headers.get("X-Porthaven-Session", ""))[:10] or None
                 result = api.dispatch(method, url.path, parse_qs(url.query), body)
                 self._send(200, result if result is not None else {})
             except ControlError as err:
@@ -269,79 +358,13 @@ def make_handler(api, porthaven, port):
             target, name, app_id = porthaven.proxy_target(slug)
             if not target and app_id:
                 target = porthaven.wake_app(app_id)
-            if not target or target == port:
+            if not target or target in (porthaven.port, port):
                 page = (f"<!doctype html><meta charset=utf-8><title>{html.escape(slug)} · Porthaven</title><body style='font:15px system-ui;"
                         f"background:#080b12;color:#d6deeb;padding:48px'><h2>Nothing called “{html.escape(slug)}” is running.</h2>"
-                        f"<p>Start it from <a style='color:#5eead4' href='http://localhost:{port}/'>Porthaven</a> and reload this page.</p>")
+                        f"<p>Start it from <a style='color:#5eead4' href='http://localhost:{porthaven.port}/'>Porthaven</a> and reload this page.</p>")
                 return self._send(502, page.encode(), "text/html; charset=utf-8")
-            upstream = None
-            for host in ("127.0.0.1", "::1"):
-                try:
-                    upstream = socket.create_connection((host, target), timeout=5)
-                    break
-                except OSError:
-                    continue
-            if not upstream:
+            if not relay.forward(self, target, proto=scheme, record=lambda e: porthaven.record_request(slug, app_id, e)):
                 return self._send(502, f"{name or slug} is not accepting connections on port {target}.".encode(), "text/plain")
-            upstream.settimeout(None)
-            websocket = "upgrade" in (self.headers.get("Connection") or "").lower()
-            head = f"{self.command} {self.path} {self.request_version}\r\n"
-            for k, v in self.headers.items():
-                if not websocket and k.lower() in ("connection", "keep-alive"):
-                    continue
-                head += f"{k}: {v}\r\n"
-            if not websocket:
-                head += "Connection: close\r\n"
-            head += f"X-Forwarded-Host: {self.headers.get('Host')}\r\nX-Forwarded-Proto: http\r\n\r\n"
-            self.close_connection = True
-            started = time.monotonic()
-            entry = {"t": time.time(), "method": self.command, "path": self.path[:300], "status": None, "ms": None,
-                     "bytes": 0, "ws": websocket, "port": target}
-            try:
-                upstream.sendall(head.encode("latin-1"))
-            except OSError:
-                upstream.close()
-                return
-
-            def client_to_upstream():
-                try:
-                    while True:
-                        chunk = self.rfile.read1(65536)
-                        if not chunk:
-                            break
-                        upstream.sendall(chunk)
-                except OSError:
-                    pass
-                finally:
-                    try:
-                        upstream.shutdown(socket.SHUT_WR)
-                    except OSError:
-                        pass
-
-            threading.Thread(target=client_to_upstream, daemon=True).start()
-            first = True
-            try:
-                while True:
-                    chunk = upstream.recv(65536)
-                    if not chunk:
-                        break
-                    if first:
-                        first = False
-                        m = re.match(rb"HTTP/\d(?:\.\d)? (\d{3})", chunk)
-                        entry["status"] = int(m.group(1)) if m else None
-                        entry["ttfb"] = round((time.monotonic() - started) * 1000)
-                        if websocket:   # record the upgrade now; the socket may stay open for hours
-                            entry["ms"] = entry["ttfb"]
-                            porthaven.record_request(slug, app_id, dict(entry))
-                    entry["bytes"] += len(chunk)
-                    self.connection.sendall(chunk)
-            except OSError:
-                pass
-            finally:
-                upstream.close()
-                if not websocket:
-                    entry["ms"] = round((time.monotonic() - started) * 1000)
-                    porthaven.record_request(slug, app_id, entry)
 
         def do_GET(self):
             if self._proxied():
@@ -486,6 +509,68 @@ class _Server6(ThreadingHTTPServer):
     address_family = socket.AF_INET6
 
 
+class _TlsServer(ThreadingHTTPServer):
+    """HTTPS on the request's own thread: the handshake (and making a certificate for a new name) never holds up
+    other connections."""
+    daemon_threads = True
+
+    def __init__(self, addr, handler, ctx, family=socket.AF_INET):
+        self.address_family = family
+        self.ctx = ctx
+        super().__init__(addr, handler)
+
+    def finish_request(self, request, client_address):
+        try:
+            request.settimeout(15)
+            conn = self.ctx.wrap_socket(request, server_side=True)
+            conn.settimeout(None)
+        except (ssl.SSLError, OSError):
+            return
+        try:
+            self.RequestHandlerClass(conn, client_address, self)
+        finally:
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+
+def start_https(porthaven, api):
+    """Serve stable names over HTTPS on the configured port (127.0.0.1 and ::1 only)."""
+    port = int(porthaven.store.settings.get("httpsPort") or 7443)
+    porthaven.https.update(enabled=False, port=port, error=None)
+    try:
+        ctx = porthaven.tls.server_context()
+        handler = make_handler(api, porthaven, port, scheme="https")
+        servers = [_TlsServer(("127.0.0.1", port), handler, ctx)]
+        if socket.has_ipv6:
+            try:
+                servers.append(_TlsServer(("::1", port), handler, ctx, socket.AF_INET6))
+            except OSError:
+                pass
+    except (tls.TlsError, ssl.SSLError, OSError) as err:
+        porthaven.https["error"] = f"HTTPS could not start on :{port}: {err}"
+        porthaven._publish()
+        return None
+    for srv in servers:
+        threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True, name=f"porthaven-https-{port}").start()
+    porthaven.https_servers = servers
+    porthaven.https.update(enabled=True, checkedAt=0.0)
+    porthaven._publish()
+    return servers
+
+
+def stop_https(porthaven):
+    for srv in getattr(porthaven, "https_servers", None) or []:
+        try:
+            srv.shutdown()
+            srv.server_close()
+        except OSError:
+            pass
+    porthaven.https_servers = []
+    porthaven.https.update(enabled=False, error=None)
+
+
 def serve(porthaven, port, host="127.0.0.1", ready=None):
     token = secrets.token_urlsafe(24)
     api = Api(porthaven, token)
@@ -505,6 +590,8 @@ def serve(porthaven, port, host="127.0.0.1", ready=None):
     porthaven.port = port
     # Answer straight away; the first scan of the machine can take a few seconds on a busy or slow machine.
     threading.Thread(target=porthaven.start, daemon=True, name="porthaven-first-scan").start()
+    if porthaven.store.settings.get("https"):
+        threading.Thread(target=start_https, args=(porthaven, api), daemon=True, name="porthaven-https-start").start()
     if ready:
         threading.Timer(0.3, ready).start()
     try:

@@ -35,7 +35,8 @@ export function AppEditor({ app, onClose, onStart, groups = [], porthavenPort, a
     const env = Object.fromEntries(envText.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#") && l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim()]));
     const body = { name: v.name, cwd: v.cwd, command: v.command, port: v.port || null, openPath: v.openPath || "/", env, autoRestart: !!v.autoRestart,
       color: v.color || "", group: (v.group || "").trim(), slug: (v.slug || "").trim().toLowerCase(),
-      dependsOn: v.dependsOn || [], health: (v.health || "").trim(), sleepAfter: Number(v.sleepAfter || 0), wake: v.wake ?? true };
+      dependsOn: v.dependsOn || [], health: (v.health || "").trim(), sleepAfter: Number(v.sleepAfter || 0), wake: v.wake ?? true,
+      ...(v.compose ? { compose: v.compose } : {}) };
     try {
       const saved = editing ? await api.updateApp(app.id!, body) : await api.createApp(body);
       toast(<>{editing ? "Saved" : "Added"} <b>{saved.name}</b>.</>, "ok");
@@ -65,6 +66,9 @@ export function AppEditor({ app, onClose, onStart, groups = [], porthavenPort, a
           <input className={cx(inputCls, "font-mono")} type="number" min={1} max={65535} value={v.port ?? ""} onChange={set("port")} placeholder="5173" />
         </Field>
         <div className="col-span-2"><Field label="Folder"><input className={cx(inputCls, "font-mono text-xs")} value={v.cwd || ""} onChange={set("cwd")} placeholder="~/projects/my-app" /></Field></div>
+        {v.compose && <div className="col-span-2 flex items-center gap-2 rounded-lg border border-info/30 bg-info/5 px-3 py-2 text-xs text-ink-2">
+          <Icon name="docker" size={14} className="text-info" />Docker Compose service <b>{v.compose.service}</b> from <span className="font-mono">{v.compose.file}</span>. Porthaven runs it attached (its output is captured), waits for its health check, and stops it with <span className="font-mono">docker compose stop</span>.
+        </div>}
         <div className="col-span-2"><Field label="Command" hint={<>e.g. <span className="font-mono">npm run dev -- --port {"{port}"} --strictPort</span>, <span className="font-mono">make dev</span>, <span className="font-mono">uvicorn app:app --reload --port {"{port}"}</span></>}>
           <input className={cx(inputCls, "font-mono text-xs")} value={v.command || ""} onChange={set("command")} placeholder="npm run dev" />
         </Field></div>
@@ -134,7 +138,8 @@ export function DiscoverModal({ open, onClose, home, onPick }: { open: boolean; 
 
   const add = async (d: Discovered) => {
     try {
-      const a = await api.createApp({ name: d.script === "dev" || d.script === "start" ? d.name : `${d.name} · ${d.script}`, cwd: d.cwd, command: d.command, port: d.port });
+      const a = await api.createApp({ name: d.compose ? d.name : d.script === "dev" || d.script === "start" ? d.name : `${d.name} · ${d.script}`, cwd: d.cwd, command: d.command, port: d.port,
+        ...(d.compose ? { compose: d.compose, slug: d.compose.service.toLowerCase().replace(/[^a-z0-9-]/g, "-") } : {}) });
       toast(<>Added <b>{a.name}</b>.</>, "ok");
       setRes((r) => r && { ...r, items: r.items.map((x) => x === d ? { ...x, saved: true } : x) });
     } catch (e) {
@@ -163,7 +168,7 @@ export function DiscoverModal({ open, onClose, home, onPick }: { open: boolean; 
               <div className="truncate font-mono text-[11px] text-faint">{shortPath(d.cwd, home)} · {d.detail}</div>
             </div>
             {d.saved ? <span className="flex items-center gap-1 text-xs text-ok"><Icon name="check" size={13} />Added</span> : <>
-              <Button size="sm" variant="ghost" onClick={() => onPick({ name: d.name, cwd: d.cwd, command: d.command, port: d.port })}>Edit first</Button>
+              <Button size="sm" variant="ghost" onClick={() => onPick({ name: d.name, cwd: d.cwd, command: d.command, port: d.port, ...(d.compose ? { compose: d.compose } : {}) })}>Edit first</Button>
               <Button size="sm" variant="soft" icon="plus" onClick={() => void add(d)}>Add</Button>
             </>}
           </div>

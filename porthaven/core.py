@@ -19,7 +19,7 @@ from . import classify, probe, system
 from .control import ControlError, Managed, signal_and_wait
 from .discover import discover
 from .metrics import RANGES, Metrics
-from . import gitinfo, stacks, teamfile
+from . import agents, compose, drift, gitinfo, history, leaks, logsearch, netmap, relay, share, stacks, teamfile, tls
 from .store import Store
 
 SPARK = 60
@@ -96,6 +96,23 @@ class Porthaven:
         self.conns = {}
         self.last_events = []
         self.stopped = collections.OrderedDict()   # pid -> (time, listener row) for apps stopped from Porthaven, so they can run again
+        self.links = []                           # established connections touching a listening port (service map)
+        self.netmap = netmap.ServiceMap()
+        self.history = history.PortHistory(self.store.root)
+        self.containers = []                      # running Docker containers, with their compose service
+        self.agent_marks = {}                     # pid -> coding-agent session that started it (see agents.py)
+        self.agent_checked = set()
+        self.sessions = {}                        # "pid@start" -> {label, pid, startedAt, alive, endedAt}
+        self.mem_hist = collections.defaultdict(lambda: collections.deque(maxlen=leaks.WINDOW // leaks.EVERY + 5))
+        self.mem_at = 0.0
+        self.leaks = {}                           # pid -> trend, for servers whose memory keeps growing
+        self.leaks_told = set()
+        self.drift = {"findings": [], "at": 0.0, "running": False}
+        self.drift_scanner = drift.Scanner()
+        self.shares = share.Shares(on_event=self._share_event)
+        self.tls = tls.Authority(self.store.root)
+        self.https = {"enabled": False, "port": None, "error": None, "status": None, "checkedAt": 0.0}
+        self._load_agent_marks()
 
     # ------------------------------------------------------------ scanning
 
@@ -107,6 +124,9 @@ class Porthaven:
     def stop(self):
         self._stop.set()
         self.wake.set()
+        self.shares.stop_all()
+        self.history.flush()
+        self._save_agent_marks()
         self.store.save(now=True)
         self.metrics.save()
 
@@ -120,6 +140,7 @@ class Porthaven:
             try:
                 self.refresh()
                 self._sleep_idle_apps()
+                self._after_scan()
             except Exception as err:   # keep scanning; surface the failure in the snapshot instead of dying
                 self.error = f"Scan failed: {err}"
                 self._publish()
@@ -150,9 +171,10 @@ class Porthaven:
                 self.cwd_cache[p] = (procs.get(p, {}).get("args"), got.get(p))
         ports = sorted({port for (_, port) in found})
         try:
-            conns = system.established(ports)
+            links = system.connections(ports)
         except system.SystemError_:
-            conns = {}
+            links = []
+        conns = system.server_counts(links, ports)
         self._docker_refresh()
         now = time.time()
         for port, n in conns.items():
@@ -171,8 +193,15 @@ class Porthaven:
             if not initial:
                 for key in found.keys() - prev.keys():
                     events.append(self._event("opened", found[key], procs))
+                    self.history.start(key[0], key[1], self._history_info(events[-1]))
                 for key in prev.keys() - found.keys():
                     events.append(self._event("closed", prev[key], self.procs_prev))
+                    self.history.end(key[0], key[1], self._history_info(events[-1]))
+            else:
+                for key, row in found.items():
+                    p = procs.get(key[0]) or {}
+                    started = now - p["elapsed"] if p.get("elapsed") is not None else now
+                    self.history.start(key[0], key[1], {"command": classify.display_command(p.get("args") or row["command"], 200)}, started)
             for key in prev.keys() - found.keys():
                 self.first_seen.pop(key, None)
                 shown = self._row_for_pid(key[0])   # last published row: lets Restart run a server that stopped by itself
@@ -188,6 +217,8 @@ class Porthaven:
                     self.spark.pop(pid, None)
             self.roots = roots
             self.conns = conns
+            self.links = links
+        self._mark_agents(found, procs, roots)
         self._ready_events(events, found)
         self._schedule_probes(found, procs)
         self.scan_ms = round((time.monotonic() - t0) * 1000)
@@ -207,6 +238,331 @@ class Porthaven:
                     "title": r["title"], "level": "error", "detail": r["exposureRisk"]["title"], "notify": True} for r in new]
             self.store.add_activity(evs)
             self._publish(evs)
+
+    # ------------------------------------------------------------ after every scan: shares, memory, agents, drift
+
+    def _after_scan(self):
+        snap = self.snapshot
+        if not snap:
+            return
+        rows = snap["listeners"]
+        self.shares.tick({r["port"] for r in rows})
+        for r in rows:
+            self.history.update(r["pid"], r["port"], {"title": r["title"], "project": (r["project"] or {}).get("name"),
+                                                      "framework": (r["framework"] or {}).get("label"), "app": r.get("appId")})
+        changed = self._watch_memory(rows)
+        changed = self._watch_agent_sessions(rows) or changed
+        if self.store.settings.get("drift", True) and time.time() - self.drift["at"] > 60 and not self.drift["running"]:
+            self.drift["running"] = True
+            self.pool.submit(self._drift_scan)
+        if time.time() - self.https["checkedAt"] > 300 and self.https["enabled"]:
+            self.pool.submit(self._https_check)
+        if changed:
+            self._publish()
+
+    @staticmethod
+    def _history_info(ev):
+        return {k: ev.get(k) for k in ("title", "project", "framework") if ev.get(k)}
+
+    def port_history(self, port, at=None, since=None, until=None):
+        rows = self.history.query(port, since=since, until=until, at=at)
+        now_rows = [r for r in (self.snapshot or {}).get("listeners", []) if r["port"] == port]
+        return {"port": port, "at": at, "intervals": rows[:500], "now": [{"pid": r["pid"], "title": r["title"]} for r in now_rows],
+                "hint": classify.PORT_HINTS.get(port)}
+
+    # ---------------- memory that keeps growing
+
+    def _watch_memory(self, rows):
+        now = time.time()
+        if now - self.mem_at < leaks.EVERY:
+            return False
+        self.mem_at = now
+        alive, changed = set(), False
+        threshold = float(self.store.settings.get("leakMb", 500) or 0)
+        for r in rows:
+            if r["kind"] not in ("dev", "service", "other", "tool") or r["risk"] in ("self", "foreign") or r["memMb"] is None:
+                continue
+            alive.add(r["pid"])
+            self.mem_hist[r["pid"]].append((now, r["memMb"]))
+            found = leaks.trend(list(self.mem_hist[r["pid"]]), min_mb=threshold)
+            if found and r["pid"] not in self.leaks:
+                changed = True
+                if r["pid"] not in self.leaks_told:
+                    self.leaks_told.add(r["pid"])
+                    self.store.add_activity([{"id": f"{now:.6f}-leak-{r['pid']}", "ts": now, "type": "leak", "port": r["port"], "pid": r["pid"],
+                                              "title": r["title"], "appId": r.get("appId"), "level": "warn", "notify": True,
+                                              "detail": f"memory +{found['growthMb']} MB in {found['minutes']} min, still growing"}])
+            elif not found and r["pid"] in self.leaks:
+                changed = True
+            if found:
+                self.leaks[r["pid"]] = found
+            else:
+                self.leaks.pop(r["pid"], None)
+        for pid in list(self.mem_hist):
+            if pid not in alive:
+                self.mem_hist.pop(pid, None)
+                self.leaks.pop(pid, None)
+        return changed
+
+    # ---------------- servers coding agents started
+
+    def _load_agent_marks(self):
+        now = time.time()
+        try:
+            procs = system.processes()
+        except system.SystemError_:
+            procs = {}
+        for pid, mark in (self.store.data.get("agentServers") or {}).items():
+            p = procs.get(int(pid))
+            if p and mark.get("procStart") is not None and agents.started(p, now) is not None \
+                    and abs(agents.started(p, now) - mark["procStart"]) <= 5:
+                self.agent_marks[int(pid)] = mark
+                self.agent_checked.add(int(pid))
+
+    def _save_agent_marks(self):
+        with self.store.lock:
+            self.store.data["agentServers"] = {str(pid): m for pid, m in self.agent_marks.items()}
+            self.store.save()
+
+    def _mark_agents(self, found, procs, roots):
+        now, added = time.time(), False
+        for (pid, _port) in found:
+            for p in {pid, roots.get(pid, pid)}:
+                if p in self.agent_checked:
+                    continue
+                self.agent_checked.add(p)
+                if p in self.self_pids:
+                    continue
+                sess = agents.find_session(p, procs, now, stop_pids={self.pid})
+                if sess:
+                    self.agent_marks[p] = {**sess, "procStart": agents.started(procs.get(p), now)}
+                    added = True
+        gone = [p for p in self.agent_marks if p not in procs]
+        for p in gone:
+            self.agent_marks.pop(p, None)
+        self.agent_checked &= set(procs)
+        if added or gone:
+            self._save_agent_marks()
+
+    def agent_for(self, row, m=None):
+        """The coding-agent session behind a listening row, with whether that session is still running. Porthaven,
+        desktop apps and system services are never an agent's leftovers, whoever started them."""
+        if row["kind"] in ("tool", "system", "app") or row["risk"] in ("self", "foreign", "system", "app"):
+            return None
+        sess = self.agent_marks.get(row["pid"]) or self.agent_marks.get((row.get("root") or {}).get("pid")) or (m.agent if m else None)
+        if not sess:
+            return None
+        key = f"{sess['pid']}@{sess.get('startedAt')}"
+        st = self.sessions.get(key) or {}
+        return {"agent": sess["agent"], "label": sess["label"], "pid": sess["pid"], "startedAt": sess.get("startedAt"),
+                "alive": st.get("alive", agents.alive(sess, self.procs, time.time())), "endedAt": st.get("endedAt"), "key": key}
+
+    def _watch_agent_sessions(self, rows):
+        now, changed = time.time(), False
+        by_session = {}
+        for r in rows:
+            if r.get("agent"):
+                by_session.setdefault(r["agent"]["key"], []).append(r)
+        for key, rs in by_session.items():
+            a = rs[0]["agent"]
+            st = self.sessions.setdefault(key, {"label": a["label"], "pid": a["pid"], "startedAt": a["startedAt"], "alive": True, "endedAt": None})
+            alive = agents.alive({"pid": a["pid"], "startedAt": a["startedAt"]}, self.procs, now)
+            if st["alive"] and not alive:
+                st.update(alive=False, endedAt=now)
+                changed = True
+                mem = round(sum(r["memMb"] or 0 for r in rs))
+                self.store.add_activity([{"id": f"{now:.6f}-agent-{key}", "ts": now, "type": "agent-ended", "title": a["label"],
+                                          "level": "warn", "notify": self.store.settings.get("agentCleanup") != "off",
+                                          "detail": f"session ended; left {len(rs)} server(s) running ({', '.join(':' + str(r['port']) for r in rs)}, {mem} MB)"}])
+            elif alive and not st["alive"]:
+                st.update(alive=True, endedAt=None)
+        if self.store.settings.get("agentCleanup") == "stop":
+            wait = float(self.store.settings.get("agentCleanupMinutes", 15)) * 60
+            for key, rs in by_session.items():
+                st = self.sessions.get(key) or {}
+                if st.get("alive") or not st.get("endedAt") or now - st["endedAt"] < wait:
+                    continue
+                for r in rs:
+                    if r["connections"] or r["risk"]:
+                        continue
+                    try:
+                        self._stop_row(r, actor=f"cleanup after {st['label']}")
+                        changed = True
+                    except ControlError:
+                        pass
+        return changed
+
+    def _stop_row(self, r, actor=None):
+        if r.get("managed"):
+            return self.stop_app(r["managed"])
+        return self.kill(r["pid"], mode="app", actor=actor)
+
+    def agent_leftovers(self, session_pid=None, include_live=False):
+        rows = [r for r in (self.snapshot or {}).get("listeners", []) if r.get("agent")
+                and (include_live or not r["agent"]["alive"]) and (session_pid is None or r["agent"]["pid"] == session_pid)]
+        return rows
+
+    def stop_agent_servers(self, session_pid=None, include_live=False, actor=None):
+        out, seen = {}, set()
+        for r in self.agent_leftovers(session_pid, include_live):
+            if r["pid"] in seen or r["risk"]:
+                continue
+            seen.add(r["pid"])
+            try:
+                self._stop_row(r, actor=actor)
+                out[f":{r['port']} {r['title']}"] = "stopped"
+            except ControlError as err:
+                out[f":{r['port']} {r['title']}"] = str(err)
+        self.wake.set()
+        return {"results": out, "stopped": sum(v == "stopped" for v in out.values())}
+
+    # ---------------- port drift
+
+    def _drift_projects(self):
+        rows = (self.snapshot or {}).get("listeners", [])
+        projects, seen = [], set()
+        for a in self.store.apps():
+            root = realpath(a["cwd"])
+            if not root or root in seen or not os.path.isdir(root):
+                continue
+            seen.add(root)
+            ports = {r["port"] for r in rows if r.get("appId") == a["id"]} | ({int(a["port"])} if a.get("port") else set())
+            projects.append({"root": root, "name": a["name"], "appId": a["id"], "ports": sorted(ports),
+                             "running": any(r.get("appId") == a["id"] for r in rows)})
+        for r in rows:
+            if r["kind"] not in ("dev", "service", "other") or not r["project"] or r["risk"] == "foreign":
+                continue
+            root = realpath(r["project"]["root"])
+            if root in seen or not root or root == realpath(str(Path.home())):
+                continue
+            seen.add(root)
+            ports = sorted({x["port"] for x in rows if x["project"] and realpath(x["project"]["root"]) == root})
+            projects.append({"root": root, "name": r["project"]["name"], "appId": r.get("appId"), "ports": ports, "running": True})
+        return projects[:40]
+
+    def _drift_scan(self):
+        try:
+            snap = self.snapshot or {}
+            found = drift.check(self._drift_projects(), self.store.apps(), snap.get("listeners", []), self.store.activity()[-1500:],
+                                porthaven_port=self.port, scanner=self.drift_scanner)
+            dismissed = set(self.store.data.get("driftDismissed") or [])
+            found = [f for f in found if f["id"] not in dismissed]
+            old = {f["id"] for f in self.drift["findings"]}
+            self.drift.update(findings=found, at=time.time())
+            if {f["id"] for f in found} != old:
+                self._publish()
+        finally:
+            self.drift["running"] = False
+        return self.drift
+
+    def drift_scan(self):
+        self.drift["running"] = True
+        return self._drift_scan()
+
+    def drift_fix(self, finding_id, port=None):
+        f = next((x for x in self.drift["findings"] if x["id"] == finding_id), None)
+        if not f:
+            raise ControlError("That mismatch is not in the latest scan any more; scan again.", status=404)
+        new_port = int(port or (f.get("fix") or {}).get("port") or 0)
+        if not new_port:
+            raise ControlError("Porthaven does not know which port to use; edit the file yourself.")
+        if realpath(f["projectRoot"]) not in self.known_paths() or not realpath(f["file"]).startswith(realpath(f["projectRoot"])):
+            raise ControlError("Porthaven only edits files inside the projects it shows.", status=403)
+        try:
+            line = drift.apply_fix(f["file"], f["line"], f["match"], f"{f['host']}:{new_port}")
+        except (OSError, ValueError, UnicodeDecodeError) as err:
+            raise ControlError(str(err)) from err
+        now = time.time()
+        self.store.add_activity([{"id": f"{now:.6f}-drift-fix", "ts": now, "type": "fixed", "port": new_port, "title": f["project"],
+                                  "level": "info", "detail": f"{f['rel']} line {f['line']}: {f['match']} → :{new_port}"}])
+        self.drift["findings"] = [x for x in self.drift["findings"] if x["id"] != finding_id]
+        self._publish()
+        return {"file": f["file"], "line": f["line"], "text": line}
+
+    def drift_dismiss(self, finding_id):
+        with self.store.lock:
+            d = self.store.data.setdefault("driftDismissed", [])
+            if finding_id not in d:
+                d.append(finding_id)
+                del d[:-500]
+            self.store.save()
+        self.drift["findings"] = [x for x in self.drift["findings"] if x["id"] != finding_id]
+        self._publish()
+        return {"dismissed": finding_id}
+
+    # ---------------- sharing a port
+
+    def _share_event(self, kind, s, why=None):
+        now = time.time()
+        where = "on your network" if s.mode == "lan" else f"publicly via {s.tunnel_name}"
+        detail = (f"shared {where} until {time.strftime('%H:%M', time.localtime(s.expires))}" if kind == "shared"
+                  else f"share ended ({why or 'stopped'}) after {s.requests} request(s)")
+        self.store.add_activity([{"id": f"{now:.6f}-{kind}-{s.id}", "ts": now, "type": kind, "port": s.port, "title": s.title,
+                                  "level": "warn" if kind == "shared" and s.mode == "public" else "info", "detail": detail}])
+        self.wake.set()
+
+    def share_start(self, port, mode="lan", minutes=60, tunnel=None):
+        row = next((r for r in (self.snapshot or {}).get("listeners", []) if r["port"] == port), None)
+        if not row:
+            raise ControlError(f"Nothing is listening on :{port}.", status=404)
+        if row["risk"] in ("self", "foreign", "system", "app") or row["kind"] not in ("dev", "service", "other"):
+            raise ControlError("Porthaven only shares your own dev servers, not desktop apps, system services, databases or itself.", status=403)
+        risk = row.get("exposureRisk") or {}
+        fid = (row.get("framework") or {}).get("id")
+        if risk.get("level") in ("critical", "high") or fid in ("inspector", "jupyter") or \
+                set((row.get("probe") or {}).get("flags") or []) & {"werkzeug-debugger", "django-debug"}:
+            raise ControlError("This server runs a debugger or debug pages that let visitors run code; Porthaven will not share it.", status=403)
+        if not (row.get("probe") or {}).get("ok"):
+            raise ControlError(f":{port} does not answer HTTP, so there is nothing to open in a browser.")
+        if any(s.port == port and s.mode == mode for s in self.shares.items.values()):
+            raise ControlError(f":{port} is already shared that way.", status=409)
+        try:
+            s = self.shares.start(row, mode, minutes, self.lan_ip, tunnel)
+        except (share.ShareError, OSError) as err:
+            raise ControlError(str(err)) from err
+        self._publish()
+        return s.summary()
+
+    def share_stop(self, share_id):
+        s = self.shares.stop(share_id, "stopped from Porthaven")
+        if not s:
+            raise ControlError("No such share.", status=404)
+        self._publish()
+        return {"stopped": share_id}
+
+    # ---------------- HTTPS for stable names
+
+    def _https_check(self):
+        try:
+            self.https["status"] = self.tls.status()
+        finally:
+            self.https["checkedAt"] = time.time()
+        self._publish()
+
+    def https_status(self, refresh=False):
+        if refresh or not self.https.get("status"):
+            self._https_check()
+        return {**self.https}
+
+    def https_trust(self):
+        """Run the commands that make this system trust the CA. Each one asks for your permission (a password dialog)."""
+        try:
+            self.tls.ensure_ca()
+        except tls.TlsError as err:
+            raise ControlError(str(err)) from err
+        cmds = self.tls.trust_commands()
+        if any(c[0] == "sudo" for c in cmds):
+            raise ControlError("On Linux, trusting the CA needs sudo; run `porthaven https trust` in a terminal.", status=409,
+                               commands=[" ".join(c) for c in cmds])
+        for c in cmds:
+            try:
+                out = subprocess.run(c, capture_output=True, text=True, timeout=120)
+            except (OSError, subprocess.TimeoutExpired) as err:
+                raise ControlError(f"{c[0]} failed: {err}") from err
+            if out.returncode:
+                raise ControlError(f"{' '.join(c[:2])} failed: {(out.stderr or out.stdout).strip()[:300]}")
+        self.tls.reset()
+        return self.https_status(refresh=True)
 
     def _event(self, kind, row, procs):
         meta = self.store.port_meta(row["port"])
@@ -280,32 +636,17 @@ class Porthaven:
         if time.time() - self.docker_at < 10:
             return
         self.docker_at = time.time()
-        docker = shutil.which("docker")
-        if not docker:
-            self.docker = {}
-            return
-        try:
-            out = subprocess.run([docker, "ps", "--format", "{{json .}}"], capture_output=True, text=True, timeout=2.5)
-        except (subprocess.TimeoutExpired, OSError):
+        found = compose.ps()
+        if found is None:
+            if not shutil.which("docker"):
+                self.docker, self.containers = {}, []
             return
         mapping = {}
-        for line in out.stdout.splitlines():
-            try:
-                c = json.loads(line)
-            except ValueError:
-                continue
-            for part in (c.get("Ports") or "").split(","):
-                part = part.strip()
-                if "->" not in part:
-                    continue
-                host = part.split("->")[0]
-                try:
-                    hp = int(host.rsplit(":", 1)[-1].split("-")[0])
-                except ValueError:
-                    continue
-                mapping[hp] = {"id": c.get("ID"), "name": c.get("Names"), "image": c.get("Image"), "status": c.get("Status"),
-                               "mapping": part}
-        self.docker = mapping
+        for c in found:
+            for p in c["ports"]:
+                mapping[p["host"]] = {"id": c["id"], "name": c["name"], "image": c["image"], "status": c["status"],
+                                      "mapping": p["mapping"], "service": c["service"], "workdir": c["workdir"]}
+        self.docker, self.containers = mapping, found
 
     # ------------------------------------------------------------ the picture sent to the browser
 
@@ -361,8 +702,12 @@ class Porthaven:
                 pr = None
             m = self.managed_for(pid)
             app = None
+            dk = self.docker.get(port) if fw and fw["id"] == "docker" or (row["command"] or "").startswith(("com.docke", "vpnkit", "OrbStack")) else None
             if m:
                 app = m.app_id
+            elif dk and dk.get("service"):   # a compose service's port belongs to the saved compose app for that folder
+                app = next((a["id"] for a in self.store.apps() if (a.get("compose") or {}).get("service") == dk["service"]
+                            and dk.get("workdir") and realpath(a["cwd"]) == realpath(dk["workdir"])), None)
             else:
                 # The app's folder may be where the launcher runs (make dev at the repo root) or where the
                 # server itself runs (frontend/), so either counts.
@@ -374,7 +719,6 @@ class Porthaven:
             addresses = row["addresses"]
             exposure = "network" if any(a in ("*", "0.0.0.0", "::") for a in addresses) else "local"
             spark = list(self.spark.get(pid, []))
-            dk = self.docker.get(port) if fw and fw["id"] == "docker" or (row["command"] or "").startswith(("com.docke", "vpnkit", "OrbStack")) else None
             app_name = (self.store.app(app) or {}).get("name") if app else None
             title = (meta.get("label") or app_name or (dk and dk["name"]) or (pr or {}).get("title") or (proj or {}).get("name")
                      or classify.app_bundle(args) or (fw or {}).get("label") or row["command"])
@@ -397,12 +741,26 @@ class Porthaven:
                 "lanUrl": f"http://{self.lan_ip}:{port}/" if exposure == "network" and self.lan_ip else None,
                 "exposureRisk": self.exposure_risk({"exposure": exposure, "port": port}, args, fw, kind, pr) if row["uid"] == self.uid or kind == "database" else None,
                 "stableUrl": f"http://{slugs[app]}.localhost:{self.port}/" if app in slugs and self.port else None,
+                "stableHttpsUrl": f"https://{slugs[app]}.localhost:{self.https['port']}/" if app in slugs and self.https["enabled"] else None,
+                "leak": self.leaks.get(pid),
             })
         rows = self._merge_workers(rows, procs)
+        shares = self.shares.summaries()
+        relays = self.shares.relay_ports()
         for r in rows:
             if r["project"]:
                 r["project"] = {**r["project"], "git": gitinfo.info(r["project"]["root"])}
+            r["agent"] = self.agent_for(r, self.managed.get(r["managed"]) if r["managed"] else None)
+            r["shares"] = [x for x in shares if x["port"] == r["port"]]
+            if r["port"] in relays:   # Porthaven's own relay for a share: on the network on purpose, for a while
+                r["shareRelay"] = relays[r["port"]].id
+                r["exposureRisk"] = None
         apps = [self.app_status(a, rows) for a in self.store.apps()]
+        with self.lock:
+            links = list(self.links)
+        service_map = self.netmap.build(rows, procs, links, self.store.apps(), self.self_pids, self.lan_ip, now)
+        findings = self.drift["findings"]
+        leftovers = [r for r in rows if r.get("agent") and not r["agent"]["alive"]]
         dev = [r for r in rows if r["kind"] in ("dev", "service", "tool", "other", "database")]
         projects = {r["project"]["root"] for r in rows if r["project"]}
         mine = {r["pid"]: r for r in dev}
@@ -410,7 +768,8 @@ class Porthaven:
             "version": __version__, "scannedAt": time.time(), "scanMs": self.scan_ms, "error": self.error,
             "me": {"pid": self.pid, "port": self.port, "startedAt": self.started_at, "user": os.environ.get("USER"),
                    "home": str(Path.home()), "docker": bool(shutil.which("docker")), "lanIp": self.lan_ip,
-                   "cli": str(Path(__file__).resolve().parent.parent / "bin" / ("porthaven.cmd" if system.IS_WINDOWS else "porthaven"))},
+                   "cli": str(Path(__file__).resolve().parent.parent / "bin" / ("porthaven.cmd" if system.IS_WINDOWS else "porthaven")),
+                   "https": {k: self.https[k] for k in ("enabled", "port", "error", "status")}, "tunnels": share.tunnels()},
             "listeners": rows, "apps": apps, "settings": self.store.settings,
             "summary": {"listening": len({r["port"] for r in rows}), "dev": len({r["port"] for r in dev}),
                         "projects": len(projects), "exposed": len({r["port"] for r in rows if r["exposure"] == "network"}),
@@ -423,9 +782,18 @@ class Porthaven:
                         "idleMemMb": round(sum(r["memMb"] or 0 for r in rows if r["idleFor"]), 1),
                         "watchedDown": [int(p) for p, meta in self.store.data["ports"].items()
                                         if meta.get("watched") and int(p) not in {r["port"] for r in rows}],
-                        "portClaims": {str(p): names for p, names in teamfile.port_claims(self.store.apps()).items()}},
+                        "portClaims": {str(p): names for p, names in teamfile.port_claims(self.store.apps()).items()},
+                        "agentLeftovers": len({r["pid"] for r in leftovers}),
+                        "agentLeftoverMemMb": round(sum(r["memMb"] or 0 for r in leftovers), 1),
+                        "leaks": len([r for r in rows if r.get("leak")]),
+                        "drift": len([f for f in findings if f["level"] == "warn"]),
+                        "errors": sum(a.get("errors", 0) for a in apps),
+                        "brokenLinks": len([e for e in service_map["edges"] if e["state"] == "broken"])},
             "activity": self.store.activity()[-150:],
             "workspaces": self.store.data.get("workspaces", []),
+            "map": service_map,
+            "drift": {"findings": findings, "at": self.drift["at"]},
+            "shares": shares,
         }
 
     def _health(self, port):
@@ -482,7 +850,73 @@ class Porthaven:
         slug = self.app_slugs().get(app_id)
         if not slug:
             raise ControlError("No such app.", status=404)
-        return {"slug": slug, "requests": list(self.requests.get(slug, []))}
+        return {"slug": slug, "requests": [relay.public(e) for e in list(self.requests.get(slug, []))]}
+
+    def _request(self, app_id, rid):
+        slug = self.app_slugs().get(app_id)
+        if not slug:
+            raise ControlError("No such app.", status=404)
+        e = next((x for x in list(self.requests.get(slug, [])) if x.get("id") == int(rid)), None)
+        if not e:
+            raise ControlError("That request is no longer kept (Porthaven keeps the last 300 per app).", status=404)
+        return slug, e
+
+    def request_detail(self, app_id, rid):
+        return relay.detail(self._request(app_id, rid)[1])
+
+    def replay_request(self, app_id, rid, edits=None):
+        """Send a recorded request to the app again, as it was or with changes (method, path, headers, body)."""
+        slug, e = self._request(app_id, rid)
+        edits = edits or {}
+        method = str(edits.get("method") or e["method"]).upper()
+        if not re.fullmatch(r"[A-Z]{3,10}", method):
+            raise ControlError("A method is a word such as GET or POST.")
+        path = str(edits.get("path") or e["path"])
+        if not path.startswith("/"):
+            raise ControlError("The path must start with /.")
+        headers = edits.get("headers")
+        headers = [[str(k), str(v)] for k, v in headers] if isinstance(headers, list) else list(e.get("_reqHeaders") or [])
+        if any("\r" in k + v or "\n" in k + v for k, v in headers):
+            raise ControlError("Header names and values cannot contain line breaks.")
+        body = edits["body"].encode() if isinstance(edits.get("body"), str) else (e.get("_reqBody") or b"")
+        port, _, _ = self.proxy_target(slug)
+        if not port:
+            port = self.wake_app(app_id) if self.store.app(app_id) else None
+        if not port:
+            raise ControlError("The app is not running; start it and replay again.", status=409)
+        try:
+            entry = relay.send(int(port), method, path, headers, body)
+        except RuntimeError as err:
+            raise ControlError(str(err)) from err
+        entry["replayOf"] = e["id"]
+        self.record_request(slug, app_id, entry)
+        return relay.detail(entry)
+
+    def requests_har(self, app_id):
+        slug = self.app_slugs().get(app_id)
+        if not slug:
+            raise ControlError("No such app.", status=404)
+        return relay.har([e for e in list(self.requests.get(slug, [])) if not e.get("ws")], __version__)
+
+    # ------------------------------------------------------------ searching every app's output
+
+    def log_search(self, query="", app_ids=None, regex=False, case=False, errors_only=False, since=None, limit=500):
+        sources = []
+        for a in self.store.apps():
+            if app_ids and a["id"] not in app_ids:
+                continue
+            m = self.managed.get(a["id"])
+            lines = m.tail(0, 4000) if m else logsearch.file_lines(self.store.log_path(a["id"]))
+            sources.append((a, lines))
+        try:
+            res = logsearch.search(sources, query, regex, case, errors_only, since, max(1, min(2000, int(limit))))
+        except ValueError as err:
+            raise ControlError(str(err)) from err
+        now = time.time()
+        res["recentErrors"] = [{"appId": a, "app": (self.store.app(a) or {}).get("name"), "n": len(m.recent_errors(600, now)),
+                                "last": (m.recent_errors(600, now) or [(0, 0, None)])[-1][2]}
+                               for a, m in self.managed.items() if m.recent_errors(600, now)]
+        return res
 
     # ------------------------------------------------------------ sleep when idle, wake on request
 
@@ -557,7 +991,7 @@ class Porthaven:
             t["app"] = {"id": d["id"], "name": d["name"]} if d else None
         return {"repo": g["repo"], "branch": g["branch"], "worktrees": trees}
 
-    def run_in_worktree(self, app_id, worktree, start=True, actor=None):
+    def run_in_worktree(self, app_id, worktree, start=True, actor=None, session=None):
         app = self.store.app(app_id)
         info = self.app_worktrees(app_id)
         tree = next((t for t in info["worktrees"] if realpath(t["path"]) == realpath(worktree)), None)
@@ -581,7 +1015,7 @@ class Porthaven:
                 "env": app.get("env") or {}, "openPath": app.get("openPath", "/"), "group": app.get("group"),
                 "color": app.get("color"), "health": app.get("health"), "dependsOn": app.get("dependsOn") or [],
                 "slug": f"{slugify(branch.split('/')[-1])}.{base_slug}", "worktreeOf": app_id, "branch": branch})
-        run = self.start_app(derived["id"], force=True, actor=actor) if start and not self.is_running(derived["id"]) else None
+        run = self.start_app(derived["id"], force=True, actor=actor, session=session) if start and not self.is_running(derived["id"]) else None
         self._publish()
         st = next((a for a in self.snapshot["apps"] if a["id"] == derived["id"]), derived)
         return {"app": st, "run": run, "stableUrl": st.get("stableUrl")}
@@ -661,9 +1095,16 @@ class Porthaven:
             h = next((r for r in rows if r["port"] == expected), None)
             if h:
                 holder = {"pid": h["pid"], "title": h["title"], "command": h["display"], "risk": h["risk"]}
+        container = compose.container_for(self.containers, app) if app.get("compose") else None
+        if container and state in ("stopped", "exited", "crashed"):
+            state = "external"   # started with `docker compose up -d` outside Porthaven
         slug = self.app_slugs().get(app["id"])
+        errs = m.recent_errors() if m else []
         return {**app, "state": state, "ports": ports, "pids": sorted({r["pid"] for r in mine}),
                 "stableUrl": f"http://{slug}.localhost:{self.port}/" if slug and self.port else None, "slugName": slug,
+                "stableHttpsUrl": f"https://{slug}.localhost:{self.https['port']}/" if slug and self.https["enabled"] else None,
+                "errors": len(errs), "lastError": errs[-1][2] if errs else None,
+                "container": {"name": container["name"], "status": container["status"], "health": compose.health(container["status"])} if container else None,
                 "drift": bool(expected and ports and expected not in ports), "conflict": holder,
                 "run": m.summary() if m else None, "logLines": m.seq if m else 0,
                 "logFile": str(self.store.log_path(app["id"])) if self.store.log_path(app["id"]).exists() else None}
@@ -762,15 +1203,20 @@ class Porthaven:
     # ------------------------------------------------------------ starting apps and stacks
 
     def app_ports(self):
-        """{app id: the port it runs on now} for running apps."""
-        return {a["id"]: a["ports"][0] for a in (self.snapshot or {}).get("apps", []) if a.get("ports")}
+        """{app id: the port it runs on now} for running apps. An app Porthaven just started may not be in the
+        last scan yet; the port it was started on counts until then."""
+        out = {a["id"]: a["ports"][0] for a in (self.snapshot or {}).get("apps", []) if a.get("ports")}
+        for app_id, m in list(self.managed.items()):
+            if app_id not in out and m.port and m.alive:
+                out[app_id] = int(m.port)
+        return out
 
     def is_running(self, app_id):
         st = next((a for a in (self.snapshot or {}).get("apps", []) if a["id"] == app_id), None)
         m = self.managed.get(app_id)
         return bool((m and m.alive) or (st and st["state"] in ("running", "starting", "external")))
 
-    def start_app(self, app_id, port=None, force=False, take_over=False, with_deps=True, actor=None):
+    def start_app(self, app_id, port=None, force=False, take_over=False, with_deps=True, actor=None, session=None):
         app = self.store.app(app_id)
         if not app:
             raise ControlError("No such app.", status=404)
@@ -781,12 +1227,12 @@ class Porthaven:
                 raise ControlError(str(err)) from err
             waiting = [a for a in order[:-1] if not self.is_running(a["id"])]
             if waiting:
-                threading.Thread(target=self._start_stack, args=(order, {app_id: port}, take_over, actor), daemon=True,
+                threading.Thread(target=self._start_stack, args=(order, {app_id: port}, take_over, actor, session), daemon=True,
                                  name=f"porthaven-stack-{app_id}").start()
                 return {"stack": [a["name"] for a in order], "starting": [a["name"] for a in waiting] + [app["name"]]}
-        return self._launch(app, port, force, take_over, actor)
+        return self._launch(app, port, force, take_over, actor, session)
 
-    def _launch(self, app, port=None, force=False, take_over=False, actor=None):
+    def _launch(self, app, port=None, force=False, take_over=False, actor=None, session=None):
         app_id = app["id"]
         current = self.managed.get(app_id)
         if current and current.alive:
@@ -815,7 +1261,9 @@ class Porthaven:
         if want:
             ports[app_id] = int(want)
         wired = stacks.wiring(self.store.apps(), self.app_slugs(), ports)
-        m = Managed(app, int(want) if want else None, self.store.log_path(app_id), self._on_exit, self.store.root / "run", wired=wired)
+        agent = agents.from_header(session, self.procs, time.time()) if session else None
+        m = Managed(app, int(want) if want else None, self.store.log_path(app_id), self._on_exit, self.store.root / "run", wired=wired,
+                    agent=agent)
         self.managed[app_id] = m
         self.store.add_activity([{"id": f"{time.time():.6f}-start-{app_id}", "ts": time.time(), "type": "started", "pid": m.pid,
                                   "port": m.port, "title": app["name"], "appId": app_id, "level": "info",
@@ -831,6 +1279,14 @@ class Porthaven:
             if m and not m.alive:
                 return False, f"{app['name']} exited (code {m.exit_code}) before it was ready"
             port = self.app_ports().get(app["id"]) or (m.port if m else None)
+            if app.get("compose"):   # a compose service is ready when its container's health check passes
+                c = compose.container_for(compose.ps() or [], app)
+                h = compose.health(c["status"]) if c else None
+                if c and h in ("healthy", None) and (h == "healthy" or not port or not probe.port_free(int(port))) and not app.get("health"):
+                    return True, None
+                if not c or h in ("starting", "unhealthy"):
+                    time.sleep(0.5)
+                    continue
             if port and not probe.port_free(int(port)):
                 if not app.get("health"):
                     return True, None
@@ -840,7 +1296,7 @@ class Porthaven:
             time.sleep(0.5)
         return False, f"{app['name']} was not ready within {int(timeout)} s"
 
-    def _start_stack(self, order, ports=None, take_over=False, actor=None):
+    def _start_stack(self, order, ports=None, take_over=False, actor=None, session=None):
         """Start `order` (dependencies first). Wait for an app's health only when a later app needs it, and when an
         app fails, skip just the apps that depend on it."""
         ports = ports or {}
@@ -857,7 +1313,7 @@ class Porthaven:
                 continue
             if not self.is_running(app["id"]):
                 try:
-                    self._launch(app, ports.get(app["id"]), take_over=take_over, actor=actor)
+                    self._launch(app, ports.get(app["id"]), take_over=take_over, actor=actor, session=session)
                 except ControlError as err:
                     failed[app["id"]] = app["name"]
                     self._stack_event(app, "crashed", f"could not start: {err}", "error")
@@ -885,6 +1341,18 @@ class Porthaven:
         if not app:
             raise ControlError("No such app.", status=404)
         m = self.managed.get(app_id)
+        if app.get("compose") and (m and m.alive or compose.container_for(self.containers, app)):
+            if m:
+                m.stopping = True
+            try:   # stop the container cleanly first; the attached `docker compose up` then ends by itself
+                compose.stop(app)
+            except (compose.ComposeError, OSError, subprocess.TimeoutExpired) as err:
+                if not (m and m.alive):
+                    raise ControlError(str(err)) from err
+            self.docker_at = 0
+            if not (m and m.alive):
+                self.wake.set()
+                return {"stopped": [app["name"]]}
         if m and m.alive:
             res = m.stop(grace=float(self.store.settings["graceSeconds"]), extra_pids=classify.descendants(m.pid, self.procs))
             self.wake.set()
@@ -1111,13 +1579,13 @@ class Porthaven:
                   if any(n in names for n in added + updated)}
         return {"file": str(found), "added": added, "updated": updated, "ids": ids, "claims": claims}
 
-    def teamfile_up(self, path, actor=None):
+    def teamfile_up(self, path, actor=None, session=None):
         res = self.import_teamfile(path)
         try:
             order = stacks.start_order(self.store.apps(), self.app_slugs(), res["ids"])
         except stacks.StackError as err:
             raise ControlError(str(err)) from err
-        threading.Thread(target=self._start_stack, args=(order, None, False, actor), daemon=True, name="porthaven-up").start()
+        threading.Thread(target=self._start_stack, args=(order, None, False, actor, session), daemon=True, name="porthaven-up").start()
         return {**res, "order": [a["name"] for a in order]}
 
     def teamfile_down(self, path):

@@ -317,6 +317,12 @@ function Empty({ filter, query }: { filter: Filter; query: string }) {
 /** Badges in order of importance; the row shows the first few and folds the rest into "+n". */
 function badges(l: Listener): { key: string; label: string; node: ReactNode }[] {
   const out: { key: string; label: string; node: ReactNode }[] = [];
+  if (l.shares?.length) out.push({ key: "share", label: "shared", node: (
+    <Badge tone="accent" title={l.shares.map((x) => x.url).join("\n")}><Icon name="share" size={11} />{l.shares.some((x) => x.mode === "public") ? "public" : "shared"}</Badge>) });
+  if (l.agent && !l.agent.alive) out.push({ key: "agent", label: `left by ${l.agent.label}`, node: (
+    <Badge tone="warn" title={`Started by ${l.agent.label}, whose session has ended`}><Icon name="robot" size={11} />left by {l.agent.label}</Badge>) });
+  if (l.leak) out.push({ key: "leak", label: `memory +${l.leak.growthMb} MB`, node: (
+    <Badge tone="bad" title={`Memory grew from ${l.leak.fromMb} to ${l.leak.toMb} MB in ${l.leak.minutes} minutes and is still growing`}><Icon name="trend" size={11} />+{l.leak.growthMb} MB</Badge>) });
   if (l.exposureRisk && l.exposureRisk.level !== "medium") {
     out.push({ key: "risk", label: `${l.exposureRisk.level}: ${l.exposureRisk.title}`, node: (
       <Badge tone="bad" className={l.exposureRisk.level === "critical" ? "animate-pulse" : ""} title={`${l.exposureRisk.title}. ${l.exposureRisk.fix}`}><Icon name="warn" size={11} />{l.exposureRisk.level}</Badge>) });
@@ -334,6 +340,8 @@ function badges(l: Listener): { key: string; label: string; node: ReactNode }[] 
     <Badge tone="violet" title="No connections and no CPU for this long: probably forgotten"><Icon name="moon" size={11} />idle {duration(l.idleFor)}</Badge>) });
   if (l.docker) out.push({ key: "docker", label: `Docker ${l.docker.image}`, node: <Badge tone="info"><Icon name="docker" size={11} />{l.docker.image}</Badge> });
   if (l.managed) out.push({ key: "ph", label: "started by Porthaven", node: <Badge tone="accent" title="Started by Porthaven; its output is in Apps">porthaven</Badge> });
+  if (l.agent && l.agent.alive) out.push({ key: "agent", label: `by ${l.agent.label}`, node: (
+    <Badge title={`Started by a ${l.agent.label} session that is still running (pid ${l.agent.pid})`}><Icon name="robot" size={11} />{l.agent.label}</Badge>) });
   return out;
 }
 

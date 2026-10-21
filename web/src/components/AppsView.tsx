@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type App, type ProxyRequest, type Snapshot, type Worktree } from "../api";
+import { api, type App, type Body, type ProxyRequest, type RequestDetail, type Snapshot, type Worktree } from "../api";
 import type { Actions } from "../actions";
 import { useLocal } from "../usePorthaven";
 import { ago, clock, colorFor, cx, shortPath } from "../util";
 import { Icon } from "./Icon";
 import { LogView } from "./LogView";
+import { DriftItem } from "./Side";
 import { Badge, Button, Dot, Field, IconButton, inputCls, Menu, Modal, Spinner, type MenuItem } from "./ui";
 
 const STATE: Record<App["state"], { label: string; tone: "ok" | "warn" | "bad" | "muted" | "info" | "accent"; pulse?: boolean }> = {
@@ -157,6 +158,9 @@ function AppCard({ a, all, active, actions, onClick, onEdit, onWorktree, home }:
             })}
             {!!a.sleepAfter && <Badge tone="violet" title={`Stops after ${a.sleepAfter} quiet minutes; the next request wakes it`}><Icon name="moon" size={10} />{a.sleepAfter}m</Badge>}
             {a.source && <Badge title={a.source.file}>porthaven.toml</Badge>}
+            {a.compose && <Badge tone="info" title={`${a.compose.file} · service ${a.compose.service}`}><Icon name="docker" size={10} />compose{a.container?.health ? ` · ${a.container.health}` : ""}</Badge>}
+            {!!a.errors && <Badge tone="bad" title={a.lastError || ""}>{a.errors} error{a.errors > 1 ? "s" : ""} · 10 min</Badge>}
+            {a.run?.agent && <Badge tone="warn" title={`Started for ${a.run.agent.label} (pid ${a.run.agent.pid})`}><Icon name="robot" size={10} />{a.run.agent.label}</Badge>}
             {a.drift && <Badge tone="warn" title={`Saved port is ${a.port}`}>moved off :{a.port}</Badge>}
             {!live && a.conflict && <Badge tone="warn" title={`${a.conflict.title} (pid ${a.conflict.pid})`}>:{a.port} taken</Badge>}
             {a.autoRestart && <Badge tone="violet">auto-restart</Badge>}
@@ -201,6 +205,7 @@ function AppDetail({ a, snap, actions, onEdit }: { a: App; snap: Snapshot; actio
           <p className="mt-1 truncate font-mono text-xs text-muted">$ {a.run?.command || a.command}</p>
           {a.stableUrl && <p className="mt-0.5 text-[11px] text-muted">Always at <a className="font-mono text-accent-ink hover:underline" href={a.stableUrl} target="_blank" rel="noopener">{a.stableUrl}</a>
             <button className="ml-1.5 text-faint hover:text-ink" title="Copy" onClick={() => void actions.copyText(a.stableUrl!, "Copied the stable address")}><Icon name="copy" size={11} className="inline" /></button>
+            {a.stableHttpsUrl && <> · <a className="font-mono text-accent-ink hover:underline" href={a.stableHttpsUrl} target="_blank" rel="noopener"><Icon name="lock" size={10} className="mr-0.5 inline" />{a.stableHttpsUrl}</a></>}
             {!!a.sleepAfter && <span className="ml-2 text-violet-400">· sleeps after {a.sleepAfter} quiet min, wakes on the next request</span>}</p>}
           <p className="truncate font-mono text-[11px] text-faint">{shortPath(a.cwd, snap.me.home)}{a.run && ` · started ${ago(a.run.startedAt)}`}{a.run?.pid && ` · pid ${a.run.pid}`}{a.health && ` · health ${a.health}`}</p>
           {!!a.dependsOn?.length && (
@@ -220,11 +225,17 @@ function AppDetail({ a, snap, actions, onEdit }: { a: App; snap: Snapshot; actio
           <IconButton icon="edit" title="Edit" onClick={onEdit} />
         </div>
       </div>
+      {snap.drift.findings.some((f) => f.appId === a.id && f.level === "warn") && (
+        <div className="space-y-2 border-b border-line bg-warn/5 px-5 py-2.5">
+          {snap.drift.findings.filter((f) => f.appId === a.id && f.level === "warn").map((f) => <DriftItem key={f.id} f={f} actions={actions} />)}
+        </div>
+      )}
       {(a.drift || (!live && a.conflict) || a.state === "external") && (
         <div className="space-y-1 border-b border-line bg-warn/5 px-5 py-2 text-xs">
           {a.drift && <p className="text-warn"><Icon name="warn" size={12} className="mr-1 inline" />Running on :{a.ports.join(", :")}, not on its saved port :{a.port}. Something else probably had :{a.port} when it started.</p>}
           {!live && a.conflict && <p className="text-warn"><Icon name="warn" size={12} className="mr-1 inline" />:{a.port} is in use by <b>{a.conflict.title}</b> (pid {a.conflict.pid}). Starting will offer another port or to take it over.</p>}
-          {a.state === "external" && <p className="text-info">Started outside Porthaven, so its output is not captured. <button className="font-semibold underline" onClick={() => void actions.restartApp(a)}>Restart it under Porthaven</button> to see logs here.</p>}
+          {a.state === "external" && !a.container && <p className="text-info">Started outside Porthaven, so its output is not captured. <button className="font-semibold underline" onClick={() => void actions.restartApp(a)}>Restart it under Porthaven</button> to see logs here.</p>}
+          {a.state === "external" && a.container && <p className="text-info">Its container <b>{a.container.name}</b> was started with docker compose outside Porthaven ({a.container.status}). Stop and start it here to see its output.</p>}
         </div>
       )}
       <div className="flex gap-1 border-b border-line px-4 pt-2">
@@ -235,15 +246,16 @@ function AppDetail({ a, snap, actions, onEdit }: { a: App; snap: Snapshot; actio
         ))}
       </div>
       <div className="flex min-h-0 flex-1 flex-col p-4">
-        {tab === "output" ? <LogView key={a.id} appId={a.id} live={a.state === "running" || a.state === "starting"} /> : <Requests app={a} />}
+        {tab === "output" ? <LogView key={a.id} appId={a.id} live={a.state === "running" || a.state === "starting"} /> : <Requests app={a} actions={actions} />}
       </div>
     </div>
   );
 }
 
-function Requests({ app }: { app: App }) {
+function Requests({ app, actions }: { app: App; actions: Actions }) {
   const [rows, setRows] = useState<ProxyRequest[]>([]);
   const [q, setQ] = useState("");
+  const [sel, setSel] = useState<number | null>(null);
   useEffect(() => {
     let live = true;
     const load = () => api.requests(app.id).then((r) => live && setRows(r.requests)).catch(() => {});
@@ -251,40 +263,167 @@ function Requests({ app }: { app: App }) {
     const t = window.setInterval(load, 1500);
     return () => { live = false; window.clearInterval(t); };
   }, [app.id]);
+  useEffect(() => setSel(null), [app.id]);
   const shown = [...rows].reverse().filter((r) => !q || `${r.method} ${r.path} ${r.status}`.toLowerCase().includes(q.toLowerCase()));
   const tone = (s: number | null) => (!s ? "text-faint" : s < 300 ? "text-ok" : s < 400 ? "text-info" : s < 500 ? "text-warn" : "text-bad");
   const avg = rows.length ? Math.round(rows.reduce((a, r) => a + (r.ms || 0), 0) / rows.length) : 0;
   const errors = rows.filter((r) => (r.status || 0) >= 400).length;
+  const exportHar = async () => {
+    try {
+      const har = await api.har(app.id);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(har, null, 2)], { type: "application/json" }));
+      a.download = `${app.slugName || "app"}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.har`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      actions.toast("Saved a HAR file. It holds cookies and auth headers, so share it with care.", "ok");
+    } catch (e) { actions.fail(e); }
+  };
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-line">
-      <div className="flex items-center gap-3 border-b border-line bg-panel-2/40 px-3 py-2 text-[11px] text-muted">
-        <span>{rows.length} request{rows.length === 1 ? "" : "s"}</span>
-        {rows.length > 0 && <><span>· {avg} ms avg</span><span className={errors ? "text-bad" : ""}>· {errors} error{errors === 1 ? "" : "s"}</span></>}
-        <div className="ml-auto flex items-center gap-1.5 rounded-md bg-panel px-2 py-1">
-          <Icon name="search" size={11} className="text-faint" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" className="w-32 bg-transparent text-[11px] text-ink outline-none placeholder:text-faint" />
+    <div className="flex min-h-0 flex-1 gap-3">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line">
+        <div className="flex items-center gap-3 border-b border-line bg-panel-2/40 px-3 py-2 text-[11px] text-muted">
+          <span>{rows.length} request{rows.length === 1 ? "" : "s"}</span>
+          {rows.length > 0 && <><span>· {avg} ms avg</span><span className={errors ? "text-bad" : ""}>· {errors} error{errors === 1 ? "" : "s"}</span></>}
+          <div className="ml-auto flex items-center gap-1.5 rounded-md bg-panel px-2 py-1">
+            <Icon name="search" size={11} className="text-faint" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" className="w-28 bg-transparent text-[11px] text-ink outline-none placeholder:text-faint" />
+          </div>
+          {rows.length > 0 && <button onClick={() => void exportHar()} className="flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-panel hover:text-ink" title="Save every request as a HAR file (opens in browser dev tools)"><Icon name="down" size={12} />HAR</button>}
         </div>
+        {rows.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+            <Icon name="globe" size={22} className="text-faint" />
+            <p className="text-sm text-ink">No requests yet</p>
+            <p className="max-w-sm text-xs text-muted">Porthaven records the requests that reach this app through its stable address{app.stableUrl ? <>, <a href={app.stableUrl} target="_blank" rel="noopener" className="font-mono text-accent-ink hover:underline">{app.stableUrl}</a></> : ""}. Click one to see its headers and body, replay it, or copy it as curl.</p>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto font-mono text-[12px]">
+            {shown.map((r) => (
+              <button key={r.id} onClick={() => setSel(r.id === sel ? null : r.id)}
+                className={cx("grid w-full grid-cols-[72px_52px_1fr_44px_62px] items-center gap-2.5 border-b border-line/60 px-3 py-1.5 text-left", sel === r.id ? "bg-accent-soft" : "hover:bg-panel-2/50")}>
+                <span className="text-faint">{clock(r.t)}</span>
+                <span className="font-semibold text-ink-2">{r.ws ? "WS" : r.method}</span>
+                <span className="truncate text-ink" title={r.path}>{r.replay && <Icon name="restart" size={10} className="mr-1 inline text-accent" />}{r.path}</span>
+                <span className={cx("font-semibold", tone(r.status))}>{r.status ?? "—"}</span>
+                <span className="text-right text-muted">{r.ms != null ? `${r.ms} ms` : "…"}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      {rows.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-          <Icon name="globe" size={22} className="text-faint" />
-          <p className="text-sm text-ink">No requests yet</p>
-          <p className="max-w-sm text-xs text-muted">Porthaven records the requests that reach this app through its stable address{app.stableUrl ? <>, <a href={app.stableUrl} target="_blank" rel="noopener" className="font-mono text-accent-ink hover:underline">{app.stableUrl}</a></> : ""}.</p>
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto font-mono text-[12px]">
-          {shown.map((r, i) => (
-            <div key={`${r.t}-${i}`} className="grid grid-cols-[80px_60px_1fr_56px_70px_70px] items-center gap-3 border-b border-line/60 px-3 py-1.5 hover:bg-panel-2/50">
-              <span className="text-faint">{clock(r.t)}</span>
-              <span className="font-semibold text-ink-2">{r.ws ? "WS" : r.method}</span>
-              <span className="truncate text-ink" title={r.path}>{r.path}</span>
-              <span className={cx("font-semibold", tone(r.status))}>{r.status ?? "—"}</span>
-              <span className="text-right text-muted">{r.ms != null ? `${r.ms} ms` : "…"}</span>
-              <span className="text-right text-faint">{r.bytes >= 1024 ? `${(r.bytes / 1024).toFixed(1)} kB` : `${r.bytes} B`}</span>
+      {sel != null && <RequestPane app={app} rid={sel} actions={actions} onClose={() => setSel(null)} onReplayed={(id) => setSel(id)} />}
+    </div>
+  );
+}
+
+const HIDE_IN_CURL = new Set(["host", "content-length", "connection", "accept-encoding", "x-forwarded-host", "x-forwarded-proto"]);
+
+function curlOf(d: RequestDetail) {
+  const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  const host = d.requestHeaders.find(([k]) => k.toLowerCase() === "host")?.[1] || `localhost:${d.port}`;
+  const parts = [`curl${d.method !== "GET" ? ` -X ${d.method}` : ""} ${q(`http://${host}${d.path}`)}`];
+  for (const [k, v] of d.requestHeaders) if (!HIDE_IN_CURL.has(k.toLowerCase())) parts.push(`-H ${q(`${k}: ${v}`)}`);
+  if (d.requestHeaders.some(([k]) => k.toLowerCase() === "accept-encoding")) parts.push("--compressed");
+  if (d.requestBody.text) parts.push(`--data-raw ${q(d.requestBody.text)}`);
+  return parts.join(" \\\n  ");
+}
+
+function RequestPane({ app, rid, actions, onClose, onReplayed }: { app: App; rid: number; actions: Actions; onClose: () => void; onReplayed: (id: number) => void }) {
+  const [d, setD] = useState<RequestDetail | null>(null);
+  const [err, setErr] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState({ method: "", path: "", headers: "", body: "" });
+  useEffect(() => {
+    let live = true;
+    setD(null); setErr(""); setEditing(false);
+    api.requestDetail(app.id, rid).then((x) => { if (live) { setD(x); setDraft({ method: x.method, path: x.path, headers: x.requestHeaders.map(([k, v]) => `${k}: ${v}`).join("\n"), body: x.requestBody.text || "" }); } })
+      .catch((e) => live && setErr(e.message));
+    return () => { live = false; };
+  }, [app.id, rid]);
+  const replay = async (edited: boolean) => {
+    setBusy(true);
+    try {
+      const edits = edited ? { method: draft.method, path: draft.path, body: draft.body,
+        headers: draft.headers.split("\n").map((l) => l.trim()).filter((l) => l.includes(":")).map((l) => [l.slice(0, l.indexOf(":")).trim(), l.slice(l.indexOf(":") + 1).trim()] as [string, string]) } : {};
+      const r = await api.replay(app.id, rid, edits);
+      actions.toast(<>Replayed: <b>{r.status}</b> in {r.ms} ms</>, (r.status || 0) < 400 ? "ok" : "warn");
+      onReplayed(r.id);
+    } catch (e) { actions.fail(e); } finally { setBusy(false); }
+  };
+  return (
+    <div className="flex w-[440px] shrink-0 flex-col overflow-hidden rounded-xl border border-line">
+      <div className="flex items-center gap-2 border-b border-line bg-panel-2/40 px-3 py-2">
+        <span className="truncate font-mono text-xs font-semibold text-ink">{d ? `${d.method} ${d.path}` : "…"}</span>
+        <IconButton icon="close" title="Close" size={14} className="ml-auto h-7 w-7" onClick={onClose} />
+      </div>
+      {err && <p className="p-4 text-xs text-bad">{err}</p>}
+      {!d && !err && <p className="p-4 text-xs text-muted"><Spinner size={10} /> Loading…</p>}
+      {d && (
+        <>
+          <div className="flex flex-wrap gap-1.5 border-b border-line px-3 py-2">
+            <Button size="sm" variant="primary" icon="restart" busy={busy && !editing} disabled={d.ws} onClick={() => void replay(false)}>Replay</Button>
+            <Button size="sm" variant={editing ? "soft" : "outline"} icon="edit" disabled={d.ws} onClick={() => setEditing(!editing)}>Edit and replay</Button>
+            <Button size="sm" variant="ghost" icon="copy" onClick={() => void actions.copyText(curlOf(d), "Copied as curl")}>curl</Button>
+          </div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3 text-xs">
+            {editing ? (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <select value={draft.method} onChange={(e) => setDraft({ ...draft, method: e.target.value })} className="rounded-lg border border-line-2 bg-panel-2 px-2 font-mono text-xs">
+                    {["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].map((m) => <option key={m}>{m}</option>)}
+                  </select>
+                  <input className={cx(inputCls, "font-mono text-xs")} value={draft.path} onChange={(e) => setDraft({ ...draft, path: e.target.value })} />
+                </div>
+                <textarea className={cx(inputCls, "min-h-[110px] font-mono text-[11px]")} value={draft.headers} onChange={(e) => setDraft({ ...draft, headers: e.target.value })} />
+                <textarea className={cx(inputCls, "min-h-[90px] font-mono text-[11px]")} placeholder="Body" value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
+                <Button size="sm" variant="primary" icon="play" busy={busy} onClick={() => void replay(true)}>Send</Button>
+              </div>
+            ) : null}
+            <div>
+              <div className="mb-1 flex items-center gap-2"><span className="font-semibold text-ink">Response</span>
+                <Badge tone={(d.status || 0) < 300 ? "ok" : (d.status || 0) < 400 ? "info" : (d.status || 0) < 500 ? "warn" : "bad"}>{d.status ?? "—"} {d.reason}</Badge>
+                <span className="text-faint">{d.ms} ms{d.replay ? " · replay" : ""}</span></div>
+              <Headers rows={d.responseHeaders} />
+              <BodyView b={d.responseBody} />
             </div>
-          ))}
-        </div>
+            <div>
+              <div className="mb-1 font-semibold text-ink">Request</div>
+              <Headers rows={d.requestHeaders} />
+              {d.requestBody.size > 0 && <BodyView b={d.requestBody} />}
+            </div>
+          </div>
+        </>
       )}
+    </div>
+  );
+}
+
+function Headers({ rows }: { rows: [string, string][] }) {
+  if (!rows.length) return null;
+  return (
+    <div className="mb-2 rounded-lg border border-line bg-panel-2/40 p-2 font-mono text-[10.5px] leading-relaxed">
+      {rows.map(([k, v], i) => <div key={i} className="break-all"><span className="text-muted">{k}:</span> <span className="text-ink-2">{/^(authorization|cookie|set-cookie)$/i.test(k) ? <Secret v={v} /> : v}</span></div>)}
+    </div>
+  );
+}
+
+function Secret({ v }: { v: string }) {
+  const [show, setShow] = useState(false);
+  return show ? <>{v}</> : <button className="text-faint underline decoration-dotted" onClick={() => setShow(true)}>hidden · show</button>;
+}
+
+function BodyView({ b }: { b: Body }) {
+  const pretty = useMemo(() => {
+    if (!b.text) return null;
+    try { return JSON.stringify(JSON.parse(b.text), null, 2); } catch { return b.text; }
+  }, [b.text]);
+  if (!b.size) return <p className="text-faint">No body.</p>;
+  return (
+    <div>
+      <pre className="max-h-72 overflow-auto rounded-lg border border-line bg-[#05070c] p-2 font-mono text-[10.5px] leading-relaxed text-slate-300">{pretty ?? `${b.size} bytes of binary data${b.note ? ` (${b.note})` : ""}`}</pre>
+      {(b.truncated || b.note) && <p className="mt-1 text-[10.5px] text-faint">{b.truncated ? "Only the first 32 kB is kept. " : ""}{b.note && pretty ? b.note : ""}</p>}
     </div>
   );
 }

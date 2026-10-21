@@ -20,7 +20,10 @@ INSTRUCTIONS = (
     "to see what is already running; prefer start_app for saved apps (it starts dependencies, picks a free port when "
     "the usual one is taken and keeps logs) over launching processes yourself. Read app_logs after a start or a crash. "
     "Give each git worktree its own instance with run_in_worktree instead of fighting over the same port. stop_port "
-    "refuses desktop apps, system services and other users' processes; ask the user to do those in the dashboard."
+    "refuses desktop apps, system services and other users' processes; ask the user to do those in the dashboard. "
+    "Servers you start count as this session's: call my_servers before you finish and stop_my_servers for the ones the "
+    "user does not need any more, so nothing is left running. service_map shows which services talk to each other, "
+    "port_drift finds config files that point at the wrong port, and search_logs searches every app's output."
 )
 
 
@@ -56,12 +59,39 @@ TOOLS = [
      _schema({"app": APP, "limit": {"type": "integer", "minimum": 1, "maximum": 200}}, ["app"])),
     ("recent_activity", "What happened lately: servers starting, stopping, crashing, port conflicts.",
      _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 100}})),
+    ("service_map", "Which local services talk to which (live TCP connections and declared dependencies), including "
+                    "broken links where a service is gone.", _schema()),
+    ("port_drift", "Config files (.env, vite/next configs, compose files) that point at a port where the service they "
+                   "mean no longer is, e.g. the API moved from :8000 to :8001.", _schema({"rescan": {"type": "boolean"}})),
+    ("port_history", "Who held a port and when (30 days). `at` takes '15:00', 'yesterday 3pm', '2h ago' or an ISO date.",
+     _schema({"port": PORT, "at": {"type": "string"}}, ["port"])),
+    ("search_logs", "Search the output of every saved app at once (newest first). errors_only keeps lines that look like errors.",
+     _schema({"query": {"type": "string"}, "app": APP, "errors_only": {"type": "boolean"}, "regex": {"type": "boolean"},
+              "limit": {"type": "integer", "minimum": 1, "maximum": 300}})),
+    ("my_servers", "Servers this agent session started (through Porthaven or its own shell), still running.", _schema()),
+    ("stop_my_servers", "Stop the servers this agent session started. Use before finishing, for servers the user does not need.",
+     _schema({"ports": {"type": "array", "items": PORT, "description": "Only these ports (default: all of this session's servers)"}})),
 ]
+
+
+def agent_session():
+    """The coding-agent process this MCP server runs under (Claude Code, Codex, …), found by walking up the
+    process tree; None when it is not under a known agent."""
+    import os
+    import time
+    from . import agents, system
+    try:
+        procs = system.processes()
+    except system.SystemError_:
+        return None
+    sess = agents.find_session(os.getpid(), procs, time.time())
+    return sess["pid"] if sess else None
 
 
 class Tools:
     def __init__(self):
-        self.c = Client("agent")
+        self.session = agent_session()
+        self.c = Client("agent", self.session)
         self.started = False
 
     def _ready(self):
@@ -205,6 +235,68 @@ class Tools:
         import time
         return "\n".join(f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))} {e['title']} {e['type']}"
                          + (f" :{e['port']}" if e.get("port") else "") + (f" ({e['detail']})" if e.get("detail") else "") for e in evs) or "No activity."
+
+
+    def t_service_map(self):
+        return self.c.call("GET", "/api/map")["text"]
+
+    def t_port_drift(self, rescan=False):
+        res = self.c.call("POST", "/api/drift/scan", {}) if rescan else self.c.call("GET", "/api/drift")
+        found = res.get("findings") or []
+        if not found:
+            return "No config file points at a wrong port." + ("" if rescan else " (Pass rescan=true to check again now.)")
+        return "\n".join(f"[{f['level']}] {f['title']}\n    {f['file']}:{f['line']}  {f['text']}"
+                         + (f"\n    fix: use :{f['fix']['port']}" if f.get("fix") else "") for f in found)
+
+    def t_port_history(self, port, at=""):
+        import time
+        from urllib.parse import quote
+        res = self.c.call("GET", f"/api/ports/{port}/history" + (f"?at={quote(at)}" if at else "?days=7"))
+        fmt = lambda t: time.strftime("%a %d %b %H:%M", time.localtime(t)) if t else "now"
+        lines = [f"{fmt(iv['start'])} → {fmt(iv['end'])}  {iv.get('title') or iv.get('command') or '?'}"
+                 + (f" ({iv['project']})" if iv.get("project") and iv["project"] != iv.get("title") else "") + f"  pid {iv['pid']}"
+                 for iv in res["intervals"][:40]]
+        head = f"Port {port}" + (f" at {fmt(res['at'])}" if res.get("at") else ", last 7 days") + ":"
+        return head + "\n" + ("\n".join(lines) if lines else "  nothing recorded" + (f" (usually {res['hint']})" if res.get("hint") else ""))
+
+    def t_search_logs(self, query="", app=None, errors_only=False, regex=False, limit=80):
+        from urllib.parse import urlencode
+        params = {"q": query, "errors": "1" if errors_only else "0", "regex": "1" if regex else "0", "limit": limit}
+        if app:
+            params["apps"] = self._app(app)["id"]
+        res = self.c.call("GET", "/api/logs/search?" + urlencode(params))
+        import time
+        out = [f"{time.strftime('%H:%M:%S', time.localtime(m['t'])) if m['t'] else '        '} [{m['app']}] {m['text']}" for m in res["matches"]]
+        return "\n".join(out) or "No matching lines."
+
+    def _mine(self):
+        if not self.session:
+            raise ClientError("This MCP server is not running under a coding agent Porthaven recognises, so it cannot tell "
+                              "which servers are this session's. Use list_ports instead.")
+        return [s for s in self.c.call("GET", "/api/agents")["servers"] if s["agent"]["pid"] == self.session]
+
+    def t_my_servers(self):
+        mine = self._mine()
+        return "\n".join(f":{s['port']}  {s['title']}  pid {s['pid']}  {s['memMb']} MB  {s['connections']} connection(s)" for s in mine) \
+            or "This session has no servers running."
+
+    def t_stop_my_servers(self, ports=None):
+        mine = self._mine()
+        if ports:
+            mine = [s for s in mine if s["port"] in set(ports)]
+        if not mine:
+            return "Nothing of this session's to stop."
+        done = []
+        for s in {x["pid"]: x for x in mine}.values():
+            try:
+                if s.get("managed"):
+                    self.c.call("POST", f"/api/apps/{s['managed']}/stop", {})
+                else:
+                    self.c.call("POST", "/api/kill", {"pid": s["pid"], "mode": "app", "confirm": False})
+                done.append(f":{s['port']} {s['title']}")
+            except ClientError as err:
+                done.append(f":{s['port']} {s['title']} NOT stopped: {err}")
+        return "Stopped " + "; ".join(done) + "."
 
 
 def handle(tools, msg):

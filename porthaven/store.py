@@ -9,7 +9,10 @@ import uuid
 from pathlib import Path
 
 DEFAULT_SETTINGS = {"scanInterval": 2.0, "probeInterval": 15.0, "graceSeconds": 4.0, "showSystem": False,
-                    "probeApps": False, "notify": True, "idleHours": 4.0}
+                    "probeApps": False, "notify": True, "idleHours": 4.0,
+                    "agentCleanup": "notify", "agentCleanupMinutes": 15, "leakMb": 500, "drift": True,
+                    "https": False, "httpsPort": 7443}
+CHOICES = {"agentCleanup": ("off", "notify", "stop")}
 
 
 def home():
@@ -33,7 +36,7 @@ class Store:
         (self.root / "logs").mkdir(exist_ok=True)
         self.path = self.root / "state.json"
         self.lock = threading.RLock()
-        self.data = {"apps": [], "ports": {}, "settings": dict(DEFAULT_SETTINGS), "activity": [], "workspaces": []}
+        self.data = {"apps": [], "ports": {}, "settings": dict(DEFAULT_SETTINGS), "activity": [], "workspaces": [], "agentServers": {}}
         if self.path.exists():
             try:
                 saved = json.loads(self.path.read_text())
@@ -71,7 +74,10 @@ class Store:
     def update_settings(self, values):
         with self.lock:
             for k, v in values.items():
-                if k in DEFAULT_SETTINGS and type(v) in (type(DEFAULT_SETTINGS[k]), int, float, bool):
+                if k in CHOICES and v not in CHOICES[k]:
+                    continue
+                if k in DEFAULT_SETTINGS and (type(v) is type(DEFAULT_SETTINGS[k]) or (
+                        type(DEFAULT_SETTINGS[k]) in (int, float) and type(v) in (int, float))):
                     self.data["settings"][k] = v
             self.data["settings"]["scanInterval"] = min(30.0, max(1.0, float(self.data["settings"]["scanInterval"])))
             self.save()
@@ -105,7 +111,7 @@ class Store:
     def upsert_app(self, values, app_id=None):
         with self.lock:
             fields = {k: values[k] for k in ("name", "cwd", "command", "port", "env", "openPath", "group", "color", "autoRestart", "slug",
-                                         "dependsOn", "health", "sleepAfter", "wake", "branch", "worktreeOf", "source")
+                                         "dependsOn", "health", "sleepAfter", "wake", "branch", "worktreeOf", "source", "compose")
                       if k in values}
             if app_id:
                 app = self.app(app_id)

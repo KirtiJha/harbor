@@ -6,8 +6,9 @@
 
 **A safe haven for every port on your machine.**
 
-See every app listening on a port: what it is, which project it belongs to, whether it answers.
-Start whole stacks in dependency order, give each git branch its own port, and let your coding agent do the same.
+See every app listening on a port: what it is, which project it belongs to, whether it answers, and who talks to whom.
+Start whole stacks in dependency order, give each git branch its own port, and let your coding agent do the same,
+without leaving servers behind.
 
 [![CI](https://github.com/KirtiJha/porthaven/actions/workflows/ci.yml/badge.svg)](https://github.com/KirtiJha/porthaven/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2dd4bf.svg)](LICENSE)
@@ -28,6 +29,8 @@ Every project brings a dev server, an API, a database and a watcher. They pile u
 - `kill <pid>` hits a child process, and `make dev` starts it again.
 - A server bound to `0.0.0.0` is reachable from the café Wi-Fi. Last week's prototype is still holding 400 MB.
 - Two branches, or two coding agents, both want :3000. The frontend has the API's port hard-coded.
+- The API moved to :8001 this morning, but the frontend's `.env` still says :8000.
+- Your coding agent's session ended an hour ago. The three dev servers it started are still running.
 
 Porthaven turns that into one live, searchable dashboard, with a command line for when you are already in a terminal
 and an MCP server for when your coding agent is the one starting servers.
@@ -126,6 +129,21 @@ env = { VITE_API_URL = "{url:api}" }
 sleep_after = 60
 ```
 
+- **Docker Compose services in a stack.** `compose = "postgres"` makes one service of the folder's compose file a
+  member of the stack: Porthaven runs it with `docker compose up`, keeps its output, waits for its container's
+  health check before starting what depends on it, and stops it with `docker compose stop`. Project discovery lists
+  each compose service.
+
+```toml
+[apps.db]
+compose = "postgres"          # a service of docker-compose.yml in this folder (or compose_file = "...")
+
+[apps.api]
+command = "uvicorn main:app --port {port}"
+depends_on = ["db"]
+env = { DATABASE_URL = "postgres://dev@localhost:{port:db}/shop" }
+```
+
 - **Git worktrees.** Run any saved app from another worktree of its repo. It gets its own port and its own address
   (`http://feature-x.api.localhost:7475`), so parallel branches, and parallel coding agents, stop fighting over one
   port. Cards show the branch each app runs from.
@@ -149,10 +167,40 @@ full path for your machine):
 ```
 
 Tools: `list_ports`, `port_info`, `list_apps`, `start_app`, `stop_app`, `restart_app`, `app_logs`, `stop_port`,
-`find_free_ports`, `stack_up`, `stack_down`, `run_in_worktree`, `recent_requests`, `recent_activity`. The agent
-starts Porthaven if it isn't running, and its actions show in Activity as "by agent".
+`find_free_ports`, `stack_up`, `stack_down`, `run_in_worktree`, `recent_requests`, `recent_activity`,
+`service_map`, `port_drift`, `port_history`, `search_logs`, `my_servers`, `stop_my_servers`. The agent starts
+Porthaven if it isn't running, and its actions show in Activity as "by agent".
+
+- **No servers left behind.** Porthaven notes which coding-agent session (Claude Code, Codex, Gemini CLI, Copilot
+  CLI, Cursor Agent, Aider, opencode, Goose, Amp…) started each dev server, whether through MCP or the agent's own
+  shell. When the session ends, its servers show under "Left by coding agents" with the memory they hold, and one
+  click stops them. Settings can stop them on their own once nobody is connected. Agents can clean up after
+  themselves with `my_servers` and `stop_my_servers`.
+
+### Connect the dots
+
+<img src="docs/images/map.jpg" alt="The service map: a storefront calling its API, the API holding a database connection" width="900" />
+
+- **Service map.** Who talks to whom, drawn from the live TCP connections between your processes: browser →
+  storefront → API → Postgres. Links carrying traffic animate; a link whose server went away turns red and stays on
+  the map for half an hour, and a dependency you declared but that isn't running is marked as broken.
+- **Port drift.** Porthaven reads the files where projects write down each other's addresses (`.env` files,
+  vite/next/nuxt configs, proxy configs, compose files) and checks every `localhost:PORT` against what is running:
+  "Storefront expects Shop API on :8000, but Shop API is on :8001". One click changes the line (only that line,
+  keeping its line endings), or ignore it.
+- **Port history.** Who held each port, and when, for 30 days: "what was on :3000 yesterday at 3 pm?" from the port's
+  details, `porthaven history 3000 --at "yesterday 3pm"` or the `port_history` tool.
+- **Trusted HTTPS for stable names.** `https://shop.localhost:7443/` with a lock in the browser, for OAuth callbacks,
+  secure cookies and service workers. Porthaven makes a certificate authority on your machine (or uses mkcert's)
+  and a certificate for each name on first use. `porthaven https setup`, then `porthaven https trust` once.
+- **Share a port.** A link and QR code to open a dev server on your phone over Wi-Fi, or a public link through
+  cloudflared or ngrok when one is installed. The app stays on 127.0.0.1: the link goes through a relay that only
+  lets in visitors who have its secret, ends on its own after the time you choose, and refuses debuggers, notebooks
+  and databases. A banner shows what is shared until it ends.
 
 ### Understand
+- **Search every app's output.** One search box (text or regex) over the output of every saved app, newest first,
+  with "errors only" and a list of the errors written in the last ten minutes, by app.
 - **Activity timeline.** One lane per port, with markers for launches, crashes and conflicts, plus a
   weekday-by-hour heatmap and an event log.
 - **Insights.** A week of history:
@@ -160,12 +208,17 @@ starts Porthaven if it isn't running, and its actions show in Activity as "by ag
   - health (checks OK, average and p95 response time);
   - top-five lists, and suggestions with one-click fixes.
 - **Request inspector.** Every request through an app's stable name is recorded: method, path, status, time and
-  size, with a filter, in the app's Requests tab.
+  size, with its headers and the start of each body. Replay a request as it was, or edit the method, path, headers
+  and body first; copy it as `curl`; export everything as a HAR file for the browser's dev tools.
+- **Memory that keeps growing.** A dev server whose memory grew by 500 MB (you choose) and is still growing is
+  flagged ("Storefront +640 MB in 2 h"), with a Restart button.
 - **Exposure guard.** A Werkzeug debug console or Django debug pages reachable from the network are flagged as
   critical or high, with a notification and the fix.
 - **Watch and notify.** A banner, a toast and a desktop notification when a watched port goes down.
-- **Install as an app.** Porthaven installs as its own window with a dock badge (Settings → Install as an app), and
-  [a menu-bar plugin](extras/menubar) for SwiftBar, xbar and Argos shows your ports at a glance.
+- **Install as an app.** Porthaven installs as its own window with a dock badge (Settings → Install as an app).
+- **In your editor and launcher.** [Extras](extras) include a VS Code / Cursor / Windsurf extension (ports in the
+  status bar; open, stop, start apps), Raycast script commands, an Alfred script filter (`porthaven ls --alfred`) and
+  a menu-bar plugin for SwiftBar, xbar and Argos.
 
 ### Keyboard
 
@@ -173,7 +226,7 @@ starts Porthaven if it isn't running, and its actions show in Activity as "by ag
 |---|---|---|---|
 | `⌘K` / `Ctrl K` | Command palette (type a port number) | `o` | Open in browser |
 | `/` | Search | `c` | Copy URL |
-| `1`–`4` | Ports · Apps · Activity · Insights | `p` / `w` | Pin / watch |
+| `1`–`6` | Ports · Apps · Map · Logs · Activity · Insights | `p` / `w` | Pin / watch |
 | `j` `k` | Move between rows | `x` / `⇧X` | Stop process / whole app |
 | `Space` | Select for bulk stop | `?` | All shortcuts |
 
@@ -191,6 +244,13 @@ porthaven down             # stop them
 porthaven init             # write a porthaven.toml from the saved apps in this folder
 porthaven start shop       # start a saved app and its dependencies; `porthaven stop shop`
 porthaven mcp              # MCP server (stdio) for coding agents
+porthaven map              # which local services talk to which
+porthaven drift [--fix]    # config files that point at a port the service has moved away from
+porthaven history 3000 --at "yesterday 3pm"   # who held a port, and when
+porthaven logs timeout --errors              # search every saved app's output
+porthaven share 5173       # a link for your phone (--public through cloudflared or ngrok; --stop)
+porthaven agents [--stop]  # servers coding agents started and left running
+porthaven https setup      # trusted HTTPS for stable names; `trust`, `status`, `off`
 porthaven service install  # start at login (launchd, systemd or Task Scheduler); uninstall / status
 ```
 
@@ -224,6 +284,11 @@ picture to your browser. Everything is the Python standard library, plus the too
 - **Session token.** Every change needs a per-session token that only Porthaven's own page can read.
 - **Same rules for agents.** The MCP server uses the same guard rails: it won't stop Porthaven itself, other users'
   processes, desktop apps or system services.
+- **Shares are opt-in and short.** A shared link goes through a relay that needs the link's secret, ends on its own
+  (8 hours at most) and never shares debuggers, notebooks, databases or debug pages. The app itself stays on
+  127.0.0.1.
+- **Your CA stays yours.** The HTTPS certificate authority's key is kept in `~/.porthaven/tls` (readable by you only)
+  and is trusted only when you run `porthaven https trust`; certificates are issued only for `*.localhost` names.
 - **No sudo, no telemetry.** State lives in `~/.porthaven` (move it with `PORTHAVEN_HOME`).
 
 See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
@@ -236,6 +301,7 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 | Stops processes with | signals | signals | `taskkill` |
 | Knows each process's folder | ✓ | ✓ | from its command line |
 | Start at login | launchd | systemd user service | Task Scheduler |
+| Trusting the HTTPS CA | login keychain | system store (sudo) and NSS | user certificate store |
 
 ## Contributing
 

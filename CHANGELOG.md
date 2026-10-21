@@ -3,9 +3,30 @@
 All notable changes to Porthaven are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.1.0] - 2026-10-21
 
 ### Added
+- **Service map** (Map tab, `porthaven map`): which local services talk to which, from the live TCP connections
+  between processes. Active links animate, links whose server went away turn red, declared dependencies are drawn.
+- **Port drift** (`porthaven drift`): `.env` files, vite/next/nuxt configs, proxy configs and compose files that name
+  a port the service has moved away from, with a one-click fix that changes just that line.
+- **Coding-agent sessions:** servers started by Claude Code, Codex, Gemini CLI and other agents are tracked; when the
+  session ends they show as left behind, with one-click (or automatic) clean-up. MCP tools `my_servers` and
+  `stop_my_servers`; `porthaven agents`.
+- **Trusted HTTPS** for stable names (`https://shop.localhost:7443/`) from a local certificate authority (or
+  mkcert's), with a certificate per name. `porthaven https setup|trust|status|off`.
+- **Share a port** on the local network with a link and QR code, or publicly through cloudflared or ngrok, through a
+  relay that needs the link's secret and ends on its own. `porthaven share`.
+- **Log search** (Logs tab, `porthaven logs`): every saved app's output in one search, with errors-only and the
+  errors of the last ten minutes by app.
+- **Request inspector:** headers and bodies, replay (as is or edited), copy as curl, HAR export.
+- **Memory growth alerts** for dev servers whose memory keeps growing, with a Restart button.
+- **Docker Compose services** as stack members (`compose = "postgres"` in porthaven.toml), with health checks and
+  `docker compose stop`; discovery lists each compose service.
+- **Port history** for 30 days: `porthaven history 3000 --at "yesterday 3pm"`, the port's details, and the
+  `port_history` tool. MCP tools `service_map`, `port_drift` and `search_logs`.
+- **Extras:** a VS Code / Cursor / Windsurf extension, Raycast script commands and an Alfred script filter
+  (`porthaven ls --alfred`). The menu-bar plugin shows the new alerts.
 - **Port map:** every port on one line above the table, with neighbours close together and big jumps broken. Saved
   apps that are not running hold a dashed place, a port another process took from a saved app is marked, and the
   next free ports near 3000, 5173 and 8000 are one click from the clipboard. Hovering a port highlights its row.
@@ -23,6 +44,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   rest fold into `+n`, so long names are no longer cut off.
 
 ### Fixed
+- `{url:app}` and `{port:app}` filled in an app's saved port when the app had just started on another one and the
+  scan had not seen it yet; the port Porthaven started it on now counts.
+- Importing `porthaven.toml` adopts an app saved by hand for the same folder instead of adding a twin.
 - **Restart after stopping** a server (from the toast) ran nothing: Porthaven looked for the process it had just
   stopped. It now remembers stopped servers, including ones that stopped by themselves.
 - Restarting or saving a server started with `npx` ran `npm exec vite --port 5174`, which hands `--port` to npm;

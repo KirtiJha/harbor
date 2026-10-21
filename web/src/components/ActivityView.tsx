@@ -27,6 +27,11 @@ export const EVENT: Record<Activity["type"], { label: string; color: string; ico
   slept: { label: "Slept", color: "#a78bfa", icon: "moon", verb: "went to sleep on" },
   woke: { label: "Woke", color: "#c4b5fd", icon: "bolt", verb: "woke up for a request on" },
   exposed: { label: "Exposed", color: "#ef4444", icon: "warn", verb: "is dangerously exposed on" },
+  leak: { label: "Memory growing", color: "#fb7185", icon: "trend", verb: "keeps growing in memory on" },
+  "agent-ended": { label: "Agent session ended", color: "#f59e0b", icon: "robot", verb: "" },
+  shared: { label: "Shared", color: "#2dd4bf", icon: "share", verb: "is shared from" },
+  unshared: { label: "Share ended", color: "#64748b", icon: "share", verb: "is no longer shared from" },
+  fixed: { label: "Port fixed", color: "#34d399", icon: "wrench", verb: "now points at" },
 };
 const TYPES = Object.keys(EVENT) as Activity["type"][];
 

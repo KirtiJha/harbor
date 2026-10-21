@@ -5,16 +5,18 @@ import { AppEditor, DiscoverModal } from "./components/AppEditor";
 import { ActivityView } from "./components/ActivityView";
 import { AppsView } from "./components/AppsView";
 import { InsightsView } from "./components/InsightsView";
+import { LogsView } from "./components/LogsView";
+import { MapView } from "./components/MapView";
 import { Drawer } from "./components/Drawer";
 import { Icon } from "./components/Icon";
 import { Help, Palette, SettingsModal } from "./components/Palette";
 import { PortsView } from "./components/PortsView";
-import { ActivityFeed, CleanUp, PortTools, ScanStatus, Stats, WatchList } from "./components/Side";
+import { ActivityFeed, AgentLeftovers, CleanUp, DriftCard, LeaksCard, PortTools, ScanStatus, Stats, WatchList } from "./components/Side";
 import { IconButton, Kbd, Spinner, useUi } from "./components/ui";
 import { usePorthaven, useLocal } from "./usePorthaven";
 import { cx } from "./util";
 
-type Tab = "ports" | "apps" | "activity" | "insights";
+export type Tab = "ports" | "apps" | "map" | "logs" | "activity" | "insights";
 
 export default function App() {
   const { toast } = useUi();
@@ -81,10 +83,7 @@ export default function App() {
         return;
       }
       if (e.key === "/") { e.preventDefault(); setTab("ports"); search.current?.focus(); }
-      else if (e.key === "1") setTab("ports");
-      else if (e.key === "2") setTab("apps");
-      else if (e.key === "3") setTab("activity");
-      else if (e.key === "4") setTab("insights");
+      else if (e.key >= "1" && e.key <= "6") setTab((["ports", "apps", "map", "logs", "activity", "insights"] as const)[Number(e.key) - 1]);
       else if (e.key === "?") { e.preventDefault(); setHelp(true); }
       else if (e.key === "n") { e.preventDefault(); setEditing({}); }
       else if (e.key === "t") setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -116,6 +115,10 @@ export default function App() {
 
   const appsRunning = snap.apps.filter((a) => ["running", "starting", "external"].includes(a.state)).length;
   const problems = snap.activity.filter((a) => a.level !== "info" && Date.now() / 1000 - a.ts < 3600).length;
+  const tabs = [["ports", "Ports", snap.summary.dev, "layers"], ["apps", "Apps", appsRunning ? `${appsRunning}/${snap.apps.length}` : snap.apps.length, "play"],
+    ["map", "Map", snap.summary.brokenLinks || null, "map"], ["logs", "Logs", snap.summary.errors || null, "logs"],
+    ["activity", "Activity", problems || null, "activity"], ["insights", "Insights", null, "sparkle"]] as const;
+  const alarm = (id: string) => id === "activity" || (id === "map" && !!snap.summary.brokenLinks) || (id === "logs" && !!snap.summary.errors);
 
   return (
     <div className="flex h-full flex-col">
@@ -128,11 +131,11 @@ export default function App() {
           </div>
         </a>
         <nav className="ml-4 flex gap-1">
-          {([["ports", "Ports", snap.summary.dev, "layers"], ["apps", "Apps", appsRunning ? `${appsRunning}/${snap.apps.length}` : snap.apps.length, "play"], ["activity", "Activity", problems || null, "activity"], ["insights", "Insights", null, "sparkle"]] as const).map(([id, label, count, icon], i) => (
+          {tabs.map(([id, label, count, icon], i) => (
             <button key={id} onClick={() => setTab(id)} title={`${label} (${i + 1})`}
               className={cx("relative flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition", tab === id ? "bg-panel-2 text-ink" : "text-muted hover:text-ink")}>
               <Icon name={icon} size={15} />{label}
-              {count != null && count !== 0 && <span className={cx("tnum rounded-md px-1.5 text-[11px]", id === "activity" ? "bg-bad/15 text-bad" : tab === id ? "bg-accent-soft text-accent-ink" : "bg-panel-2 text-muted")}>{count}</span>}
+              {count != null && count !== 0 && <span className={cx("tnum rounded-md px-1.5 text-[11px]", alarm(id) ? "bg-bad/15 text-bad" : tab === id ? "bg-accent-soft text-accent-ink" : "bg-panel-2 text-muted")}>{count}</span>}
               {tab === id && <span className="absolute inset-x-3 -bottom-[11px] h-0.5 rounded-full bg-accent" />}
             </button>
           ))}
@@ -170,12 +173,28 @@ export default function App() {
         </div>
       )}
 
+      {snap.shares.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-accent/30 bg-accent-soft/50 px-5 py-2 text-sm text-accent-ink">
+          <Icon name="share" size={15} />
+          {snap.shares.map((x) => (
+            <span key={x.id} className="flex items-center gap-1.5">
+              <b>:{x.port}</b> {x.title} is shared {x.mode === "lan" ? "on your network" : "publicly"} until {new Date(x.expiresAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              <button onClick={() => { const l = snap.listeners.find((y) => y.port === x.port); if (l) openPort(l); }} className="rounded-md bg-accent/15 px-2 py-0.5 text-xs font-semibold hover:bg-accent/25">Details</button>
+              <button onClick={() => void api.unshare(x.id).catch(actions.fail)} className="rounded-md bg-bad/15 px-2 py-0.5 text-xs font-semibold text-bad hover:bg-bad/25">Stop</button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <main className="flex min-h-0 flex-1 gap-4 p-4">
         {tab === "ports" && <>
           <PortsView snap={snap} query={query} actions={actions} selected={selected} onSelect={setSelected} flash={flash} />
           {sel ? <Drawer key={sel.id} l={sel} snap={snap} actions={actions} onClose={() => setSelected(null)} onOpenApp={(id) => { setAppSel(id); setTab("apps"); }} /> : (
-            <aside className="flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto">
+            <aside className="flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0">
               <Stats snap={snap} />
+              <AgentLeftovers snap={snap} actions={actions} onSelect={(l) => setSelected(l.id)} />
+              <DriftCard snap={snap} actions={actions} />
+              <LeaksCard snap={snap} actions={actions} onSelect={(l) => setSelected(l.id)} />
               <CleanUp snap={snap} actions={actions} onSelect={(l) => setSelected(l.id)} />
               <WatchList snap={snap} onSelect={(l) => setSelected(l.id)} />
               <PortTools onSelect={(l) => setSelected(l.id)} />
@@ -191,6 +210,8 @@ export default function App() {
           )}
         </>}
         {tab === "apps" && <AppsView snap={snap} actions={actions} selectedId={appSel} onSelect={setAppSel} onEdit={setEditing} onDiscover={() => setDiscover(true)} />}
+        {tab === "map" && <MapView snap={snap} onOpenPort={(port) => { const l = snap.listeners.find((x) => x.port === port); if (l) openPort(l); }} onOpenApp={(id) => { setAppSel(id); setTab("apps"); }} />}
+        {tab === "logs" && <LogsView snap={snap} onOpenApp={(id) => { setAppSel(id); setTab("apps"); }} />}
         {tab === "activity" && <ActivityView snap={snap} onOpenPort={openPort} onClear={() => void api.clearActivity()} />}
         {tab === "insights" && <InsightsView snap={snap} actions={actions} onOpenPort={openPort} onEditApp={setEditing} />}
       </main>
@@ -199,7 +220,7 @@ export default function App() {
       <DiscoverModal open={discover} onClose={() => setDiscover(false)} home={snap.me.home} onPick={(a) => { setDiscover(false); setEditing(a); }} />
       <Palette open={palette} onClose={() => setPalette(false)} snap={snap} actions={actions} nav={nav} />
       <Help open={help} onClose={() => setHelp(false)} />
-      <SettingsModal open={settings} onClose={() => setSettings(false)} settings={snap.settings} theme={theme} onTheme={setTheme} cli={snap.me.cli} />
+      <SettingsModal open={settings} onClose={() => setSettings(false)} settings={snap.settings} theme={theme} onTheme={setTheme} cli={snap.me.cli} https={snap.me.https} />
     </div>
   );
 }

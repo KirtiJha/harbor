@@ -1,0 +1,30 @@
+{
+  "name": "porthaven",
+  "displayName": "Porthaven",
+  "description": "Every port on your machine in the status bar: open, stop and start dev servers without leaving the editor.",
+  "version": "2.1.0",
+  "publisher": "porthaven",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/KirtiJha/porthaven" },
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "keywords": ["ports", "localhost", "dev server", "port manager"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "porthaven.ports", "title": "Porthaven: Show ports" },
+      { "command": "porthaven.startApp", "title": "Porthaven: Start a saved app" },
+      { "command": "porthaven.stopApp", "title": "Porthaven: Stop a saved app" },
+      { "command": "porthaven.freePort", "title": "Porthaven: Free a port" },
+      { "command": "porthaven.dashboard", "title": "Porthaven: Open the dashboard" }
+    ],
+    "configuration": {
+      "title": "Porthaven",
+      "properties": {
+        "porthaven.url": { "type": "string", "default": "http://127.0.0.1:7475", "description": "Where Porthaven runs." },
+        "porthaven.showSystem": { "type": "boolean", "default": false, "description": "Also list desktop apps and system services." }
+      }
+    }
+  }
+}

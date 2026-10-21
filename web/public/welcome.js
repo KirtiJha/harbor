@@ -115,6 +115,11 @@
     ["out", '  <span class="g">running</span>   Storefront    :5173  http://shop.localhost:7475/'],
     ["out", '  <span class="g">running</span>   Admin Portal  :5180  http://admin.localhost:7475/'],
     ["out", '<span class="g">All 3 up.</span>'],
+    ["pause", 1200],
+    ["cmd", "porthaven drift --fix"],
+    ["out", '<span class="y">⚠ Admin Portal expects Shop API on :8001, but Shop API is on :8000</span>'],
+    ["out", '    ~/shop/admin/.env:2  <span class="dim">API_URL=http://localhost:8001</span>'],
+    ["out", '    <span class="g">fixed:</span> API_URL=http://localhost:8000'],
     ["pause", 2600],
   ];
   if (!pre) return;
@@ -144,4 +149,25 @@
     }
     next();
   }
+})();
+
+// The share tile's code: a QR-like pattern with the three corner squares (decoration, not a real link).
+(function () {
+  var box = document.querySelector(".qr");
+  if (!box) return;
+  var n = 21, seed = 7, cells = "";
+  function finder(r, c) {
+    for (var [fr, fc] of [[0, 0], [0, n - 7], [n - 7, 0]]) {
+      var y = r - fr, x = c - fc;
+      if (y >= 0 && y < 7 && x >= 0 && x < 7) return y === 0 || y === 6 || x === 0 || x === 6 || (y >= 2 && y <= 4 && x >= 2 && x <= 4) ? 1 : 0;
+      if (y >= -1 && y <= 7 && x >= -1 && x <= 7) return 0;
+    }
+    return null;
+  }
+  for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) {
+    var f = finder(r, c);
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    cells += '<i class="' + ((f === null ? (seed >> 16) % 2 : f) ? "" : "o") + '"></i>';
+  }
+  box.innerHTML = cells;
 })();

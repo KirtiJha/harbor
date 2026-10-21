@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, type Activity, type Listener, type Snapshot } from "../api";
+import { api, type Activity, type DriftFinding, type Listener, type Snapshot } from "../api";
 import { useNow } from "../usePorthaven";
 import type { Actions } from "../actions";
 import { ago, clock, cx, duration, mb } from "../util";
@@ -119,6 +119,11 @@ const EV: Record<Activity["type"], { icon: string; tone: string; verb: string }>
   slept: { icon: "moon", tone: "text-violet-400", verb: "went to sleep on" },
   woke: { icon: "bolt", tone: "text-violet-300", verb: "woke up on" },
   exposed: { icon: "warn", tone: "text-bad", verb: "is dangerously exposed on" },
+  leak: { icon: "trend", tone: "text-warn", verb: "keeps growing in memory on" },
+  "agent-ended": { icon: "robot", tone: "text-warn", verb: "" },
+  shared: { icon: "share", tone: "text-accent", verb: "is shared from" },
+  unshared: { icon: "share", tone: "text-muted", verb: "is no longer shared from" },
+  fixed: { icon: "wrench", tone: "text-ok", verb: "now points at" },
 };
 
 export function ActivityFeed({ items, compact, onClear }: { items: Activity[]; compact?: boolean; onClear?: () => void }) {
@@ -195,6 +200,106 @@ export function CleanUp({ snap, actions, onSelect }: { snap: Snapshot; actions: 
         <Button size="sm" variant="soft" icon="stop" className="w-full" onClick={() => void actions.killMany(idle, "app", `Stop ${idle.length} forgotten server${idle.length > 1 ? "s" : ""}?`)}>
           Stop all idle · free {mb(snap.summary.idleMemMb)}
         </Button>
+      </div>
+    </div>
+  );
+}
+
+export function AgentLeftovers({ snap, actions, onSelect }: { snap: Snapshot; actions: Actions; onSelect: (l: Listener) => void }) {
+  const left = snap.listeners.filter((l) => l.agent && !l.agent.alive && l.risk !== "self");
+  const [busy, setBusy] = useState(false);
+  if (!left.length) return null;
+  const sessions = [...new Set(left.map((l) => l.agent!.label))];
+  const stop = async () => {
+    setBusy(true);
+    try {
+      const r = await api.stopAgentServers();
+      actions.toast(`Stopped ${r.stopped} server${r.stopped === 1 ? "" : "s"} left by coding agents.`, "ok");
+    } catch (e) { actions.fail(e); } finally { setBusy(false); }
+  };
+  return (
+    <div className="card overflow-hidden">
+      <div className="bg-gradient-to-r from-amber-500/15 to-transparent px-3 pb-2 pt-3">
+        <h3 className="flex items-center gap-1.5 text-xs font-semibold text-ink-2"><Icon name="robot" size={13} className="text-warn" />Left by coding agents</h3>
+        <p className="mt-0.5 text-[11px] text-muted">{left.length} server{left.length > 1 ? "s" : ""} from {sessions.join(", ")} session{sessions.length > 1 ? "s" : ""} that ended, holding {mb(snap.summary.agentLeftoverMemMb)}.</p>
+      </div>
+      <div className="space-y-0.5 px-2 py-1.5">
+        {left.slice(0, 6).map((l) => (
+          <button key={l.id} onClick={() => onSelect(l)} className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs hover:bg-panel-2">
+            <span className="tnum font-mono font-semibold text-ink">:{l.port}</span>
+            <span className="truncate text-muted">{l.title}</span>
+            <span className="ml-auto shrink-0 text-[11px] text-faint">{l.agent!.endedAt ? `ended ${ago(l.agent!.endedAt)}` : l.agent!.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="border-t border-line px-3 py-2">
+        <Button size="sm" variant="soft" icon="stop" className="w-full" busy={busy} onClick={() => void stop()}>Stop all · free {mb(snap.summary.agentLeftoverMemMb)}</Button>
+        {snap.settings.agentCleanup !== "stop" && <p className="mt-1.5 text-[10.5px] text-faint">Settings can stop them on their own once a session has been over for a while.</p>}
+      </div>
+    </div>
+  );
+}
+
+export function DriftCard({ snap, actions, onAll }: { snap: Snapshot; actions: Actions; onAll?: () => void }) {
+  const found = snap.drift.findings.filter((f) => f.level === "warn");
+  if (!found.length) return null;
+  return (
+    <div className="card overflow-hidden">
+      <div className="bg-gradient-to-r from-amber-500/15 to-transparent px-3 pb-2 pt-3">
+        <h3 className="flex items-center gap-1.5 text-xs font-semibold text-ink-2"><Icon name="wrench" size={13} className="text-warn" />Pointing at the wrong port</h3>
+        <p className="mt-0.5 text-[11px] text-muted">Config files that still name a port the service has moved away from.</p>
+      </div>
+      <div className="space-y-2 px-3 py-2.5">
+        {found.slice(0, 3).map((f) => <DriftItem key={f.id} f={f} actions={actions} />)}
+        {found.length > 3 && onAll && <button className="text-[11px] text-accent hover:underline" onClick={onAll}>All {found.length}</button>}
+      </div>
+    </div>
+  );
+}
+
+export function DriftItem({ f, actions }: { f: DriftFinding; actions: Actions }) {
+  const [busy, setBusy] = useState(false);
+  const fix = async () => {
+    setBusy(true);
+    try {
+      const r = await api.driftFix(f.id);
+      actions.toast(<>Changed {f.rel} line {f.line}: <span className="font-mono">{r.text}</span></>, "ok");
+    } catch (e) { actions.fail(e); } finally { setBusy(false); }
+  };
+  return (
+    <div className="text-xs">
+      <p className="text-ink">{f.title}</p>
+      <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted" title={`${f.file}:${f.line}  ${f.text}`}>{f.rel}:{f.line} · {f.text}</p>
+      <div className="mt-1.5 flex gap-1.5">
+        {f.fix && <Button size="sm" variant="soft" icon="wrench" busy={busy} onClick={() => void fix()}>Use :{f.fix.port}</Button>}
+        <Button size="sm" variant="ghost" icon="code" onClick={() => void actions.reveal(f.projectRoot, "editor")}>Open</Button>
+        <Button size="sm" variant="ghost" onClick={() => void api.driftDismiss(f.id).catch(actions.fail)}>Ignore</Button>
+      </div>
+    </div>
+  );
+}
+
+export function LeaksCard({ snap, actions, onSelect }: { snap: Snapshot; actions: Actions; onSelect: (l: Listener) => void }) {
+  const rows = snap.listeners.filter((l) => l.leak);
+  if (!rows.length) return null;
+  return (
+    <div className="card overflow-hidden">
+      <div className="bg-gradient-to-r from-rose-500/15 to-transparent px-3 pb-2 pt-3">
+        <h3 className="flex items-center gap-1.5 text-xs font-semibold text-ink-2"><Icon name="trend" size={13} className="text-bad" />Memory keeps growing</h3>
+        <p className="mt-0.5 text-[11px] text-muted">A leak, or a watcher piling up modules. A restart usually gives it back.</p>
+      </div>
+      <div className="space-y-1 px-2 py-1.5">
+        {rows.map((l) => (
+          <div key={l.id} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-panel-2">
+            <button onClick={() => onSelect(l)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+              <span className="tnum font-mono font-semibold text-ink">:{l.port}</span>
+              <span className="truncate text-muted">{l.title}</span>
+              <span className="ml-auto shrink-0 text-[11px] text-bad">+{mb(l.leak!.growthMb)} in {duration(l.leak!.minutes * 60)}</span>
+            </button>
+            <button className="shrink-0 rounded-md px-1.5 text-[11px] font-medium text-accent hover:bg-accent-soft" title="Restart it"
+              onClick={() => { const app = l.managed ? snap.apps.find((a) => a.id === l.managed) : null; void (app ? actions.restartApp(app) : actions.restart(l)); }}>Restart</button>
+          </div>
+        ))}
       </div>
     </div>
   );

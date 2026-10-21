@@ -66,12 +66,15 @@ def ensure_server(log=None):
 
 
 class Client:
-    def __init__(self, actor="cli"):
+    def __init__(self, actor="cli", session=None):
         self.actor = actor
+        self.session = session   # the coding-agent session (process id) an MCP client runs under
         self.token = None
 
     def call(self, method, path, body=None, timeout=30):
         headers = {"X-Porthaven-Actor": self.actor}
+        if self.session:
+            headers["X-Porthaven-Session"] = str(self.session)
         if method != "GET":
             if not self.token:
                 self.token = _raw("GET", "/api/session")["token"]

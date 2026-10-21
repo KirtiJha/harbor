@@ -39,10 +39,20 @@ On Windows, use `bin\porthaven.cmd` and run `npm install && npm run build` insid
 | `porthaven/teamfile.py` | Reads and writes `porthaven.toml` |
 | `porthaven/gitinfo.py` | Branch and worktree of a folder |
 | `porthaven/mcp.py` | MCP server (stdio) for coding agents |
+| `porthaven/netmap.py` | The service map: which local services talk to which, from live connections |
+| `porthaven/drift.py` | Config files that point at a port the service has moved away from |
+| `porthaven/history.py` | Who held each port and when (30 days), and reading "yesterday 3pm" |
+| `porthaven/agents.py` | Which coding-agent session started a server |
+| `porthaven/leaks.py` | Spotting memory that keeps growing |
+| `porthaven/logsearch.py` | Searching every app's output, and recognising error lines |
+| `porthaven/compose.py` | Docker Compose services as members of a stack |
+| `porthaven/relay.py` | Forwarding a request to an app (stable names, shares) and the request inspector's capture, replay and HAR |
+| `porthaven/share.py` | Shared links on the network or through cloudflared/ngrok |
+| `porthaven/tls.py` | The local certificate authority and per-name certificates for HTTPS |
 | `porthaven/client.py` | Used by the CLI and MCP server to talk to a running Porthaven, starting one if needed |
 | `porthaven/server.py` | Local HTTP server: JSON API, live event stream, stable-name proxy and request inspector, static UI |
 | `web/` | React + Tailwind dashboard, and the landing page in `web/public/welcome.*` |
-| `extras/menubar/` | Menu-bar plugin for SwiftBar, xbar and Argos |
+| `extras/` | VS Code extension, Raycast script commands, Alfred notes and the menu-bar plugin |
 | `tests/` | Unit tests on recorded command output, plus a real server and real app runs |
 
 ## Reporting bugs and security problems

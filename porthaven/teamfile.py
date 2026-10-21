@@ -17,6 +17,9 @@
     env = { API_URL = "{url:api}" }
     sleep_after = 60                      # minutes without traffic; 0 = never
 
+    [apps.db]
+    compose = "postgres"                  # a service of the docker-compose file in cwd (or compose_file)
+
 `porthaven up` imports the file and starts the stack in dependency order; `porthaven down` stops it.
 """
 from __future__ import annotations
@@ -30,7 +33,7 @@ NAME = "porthaven.toml"
 FIELDS = {  # TOML key -> app field
     "name": "name", "command": "command", "port": "port", "cwd": "cwd", "slug": "slug", "health": "health",
     "depends_on": "dependsOn", "env": "env", "sleep_after": "sleepAfter", "wake": "wake", "open_path": "openPath",
-    "auto_restart": "autoRestart", "color": "color", "group": "group",
+    "auto_restart": "autoRestart", "color": "color", "group": "group", "compose": "compose", "compose_file": "composeFile",
 }
 
 
@@ -153,13 +156,25 @@ def load(path):
     group = doc.get("group") or path.parent.name
     out = []
     for key, spec in apps.items():
-        if not isinstance(spec, dict) or not spec.get("command"):
-            raise TeamfileError(f"[apps.{key}] in {path} needs a command.")
+        if not isinstance(spec, dict) or not (spec.get("command") or spec.get("compose")):
+            raise TeamfileError(f"[apps.{key}] in {path} needs a command (or a compose service).")
         unknown = set(spec) - set(FIELDS)
         if unknown:
             raise TeamfileError(f"[apps.{key}] in {path}: unknown setting(s) {', '.join(sorted(unknown))}.")
         app = {FIELDS[k]: v for k, v in spec.items()}
         app["cwd"] = str((path.parent / spec.get("cwd", ".")).resolve())
+        if app.get("compose"):
+            from . import compose
+            cfile = compose.find_file(app["cwd"], app.pop("composeFile", None))
+            if not cfile:
+                raise TeamfileError(f"[apps.{key}] in {path}: no docker-compose file in {app['cwd']}.")
+            app["compose"] = {"service": str(app["compose"]), "file": os.path.relpath(cfile, app["cwd"])}
+            app.setdefault("command", compose.command(app["compose"]["file"], app["compose"]["service"]))
+            if not app.get("port"):
+                ports = (compose.services(cfile).get(app["compose"]["service"]) or {}).get("ports") or []
+                if ports:
+                    app["port"] = ports[0]
+        app.pop("composeFile", None)
         app.setdefault("name", key.replace("-", " ").replace("_", " ").title())
         app.setdefault("slug", re.sub(r"[^a-z0-9-]", "-", key.lower()))
         app.setdefault("group", group)
@@ -185,7 +200,13 @@ def dump(apps, base):
         lines.append(f"[apps.{key}]")
         if a.get("name") and a["name"].lower() != key:
             lines.append(f"name = {json.dumps(a['name'])}")
-        lines.append(f"command = {json.dumps(a['command'])}")
+        if a.get("compose"):
+            lines.append(f"compose = {json.dumps(a['compose']['service'])}")
+            if a["compose"].get("file") and os.path.basename(a["compose"]["file"]) not in (
+                    "compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml") or "/" in (a["compose"].get("file") or ""):
+                lines.append(f"compose_file = {json.dumps(a['compose']['file'])}")
+        else:
+            lines.append(f"command = {json.dumps(a['command'])}")
         try:
             rel = os.path.relpath(Path(os.path.expanduser(a["cwd"])).resolve(), base)
         except ValueError:

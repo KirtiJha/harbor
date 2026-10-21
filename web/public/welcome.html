@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="dark" />
   <meta name="application-name" content="Porthaven" />
-  <meta name="description" content="Porthaven shows every app listening on a port on your machine (macOS, Linux or Windows), starts whole stacks in dependency order, gives each git branch its own port, and lets coding agents do the same through MCP." />
+  <meta name="description" content="Porthaven shows every app listening on a port on your machine (macOS, Linux or Windows) and which services talk to which, starts whole stacks in dependency order, gives each git branch its own port, finds config files pointing at the wrong port, and lets coding agents do the same through MCP without leaving servers behind." />
   <title>Porthaven · a safe haven for every port on your machine</title>
   <link rel="icon" type="image/svg+xml" href="porthaven.svg" />
   <link rel="stylesheet" href="welcome.css" />
@@ -24,6 +24,7 @@
       <a href="#how">How it works</a>
       <a href="#stacks">Stacks</a>
       <a href="#agents">Agents</a>
+      <a href="#map">Map</a>
       <a href="#features">Features</a>
       <a href="#cli">CLI</a>
       <a href="#safety">Safety</a>
@@ -262,7 +263,8 @@ env = { VITE_API_URL = <span class="s">"{url:api}"</span> }</div>
         <h2>Your agent starts servers too. Now it can see them.</h2>
         <p>Porthaven includes an MCP server. Claude Code, Cursor, Windsurf and other agents can list ports, start a stack, read logs, run a worktree and free a port, with the same guard rails you have. It won't stop Porthaven, other users' processes or system services, and everything it does shows in Activity as <em>by agent</em>.</p>
         <div class="install"><span class="prompt">$</span> <code>claude mcp add porthaven -- porthaven mcp</code> <button class="copy" data-copy="claude mcp add porthaven -- porthaven mcp" aria-label="Copy">copy</button></div>
-        <div class="tools"><span class="tools-label">14 tools</span><code>list_ports</code><code>port_info</code><code>list_apps</code><code>start_app</code><code>stop_app</code><code>restart_app</code><code>app_logs</code><code>stop_port</code><code>find_free_ports</code><code>stack_up</code><code>stack_down</code><code>run_in_worktree</code><code>recent_requests</code><code>recent_activity</code></div>
+        <div class="tools"><span class="tools-label">20 tools</span><code>list_ports</code><code>port_info</code><code>list_apps</code><code>start_app</code><code>stop_app</code><code>restart_app</code><code>app_logs</code><code>stop_port</code><code>find_free_ports</code><code>stack_up</code><code>stack_down</code><code>run_in_worktree</code><code>recent_requests</code><code>recent_activity</code><code>service_map</code><code>port_drift</code><code>port_history</code><code>search_logs</code><code>my_servers</code><code>stop_my_servers</code></div>
+        <div class="leftover"><span class="lo-ic">⚑</span><div><b>No servers left behind</b><p>Porthaven knows which agent session started each dev server, even from the agent's own shell. When Claude Code, Codex or Gemini CLI finishes, its leftovers show up with the memory they hold, and one click (or a setting) stops them.</p></div></div>
       </div>
       <div class="agent reveal" aria-label="An animated coding agent using Porthaven tools">
         <div class="win-bar"><i></i><i></i><i></i><span>coding agent</span></div>
@@ -273,6 +275,37 @@ env = { VITE_API_URL = <span class="s">"{url:api}"</span> }</div>
           <div class="ag tool a4"><span class="tn2">app_logs</span> <span class="arg">api</span><span class="res">KeyError: 'currency' at cart.py:88</span></div>
           <div class="ag reply a5">The API is missing a default currency. Fixed <code>cart.py</code>, and <code>/checkout</code> now returns 200.</div>
         </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ SERVICE MAP + DRIFT -->
+    <section id="map" class="section split rev">
+      <div class="netmap reveal" aria-label="An animated map of local services: browser, storefront, API, Postgres, and a broken link to Search">
+        <svg viewBox="0 0 640 290" role="img">
+          <defs><marker id="nm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#475569" /></marker></defs>
+          <path class="nm-link" d="M118 145 L168 145" marker-end="url(#nm-arrow)" />
+          <path class="nm-link" d="M288 145 C314 145 314 76 338 76" marker-end="url(#nm-arrow)" />
+          <path class="nm-link nm-l3" d="M458 76 L508 76" marker-end="url(#nm-arrow)" />
+          <path class="nm-broken" d="M288 145 C314 145 314 214 338 214" marker-end="url(#nm-arrow)" />
+          <g class="nm-node"><rect x="10" y="121" width="108" height="48" rx="12" /><text x="24" y="142" class="nm-t">🌐 Browser</text><text x="24" y="158" class="nm-s">client</text></g>
+          <g class="nm-node"><rect x="170" y="121" width="118" height="48" rx="12" /><rect x="170" y="131" width="3" height="28" class="nm-bar nb1" /><text x="184" y="142" class="nm-t">Storefront</text><text x="184" y="158" class="nm-s">:5173 · Vite</text></g>
+          <g class="nm-node"><rect x="340" y="52" width="118" height="48" rx="12" /><rect x="340" y="62" width="3" height="28" class="nm-bar nb2" /><text x="354" y="73" class="nm-t">Shop API</text><text x="354" y="89" class="nm-s">:8001 · Uvicorn</text></g>
+          <g class="nm-node"><rect x="510" y="52" width="126" height="48" rx="12" /><rect x="510" y="62" width="3" height="28" class="nm-bar nb3" /><text x="524" y="73" class="nm-t">Postgres</text><text x="524" y="89" class="nm-s">:5432 · Docker</text></g>
+          <g class="nm-node nm-gone"><rect x="340" y="190" width="118" height="48" rx="12" /><text x="354" y="211" class="nm-t">Search</text><text x="354" y="227" class="nm-s">not running</text></g>
+          <g class="nm-pill"><rect x="466" y="205" width="92" height="18" rx="9" /><text x="512" y="218">✕ broken link</text></g>
+        </svg>
+        <div class="drift-card">
+          <span class="dc-ic">⚠</span>
+          <div><b>Storefront expects Shop API on :8000, but Shop API is on :8001</b><small>frontend/.env:3 · VITE_API_URL=http://localhost:<s>8000</s><ins>8001</ins></small></div>
+          <span class="dc-btn">Use :8001</span>
+        </div>
+      </div>
+      <div class="reveal">
+        <span class="kicker">Service map and port drift</span>
+        <h2>See who talks to whom, and who is calling the wrong port</h2>
+        <p>Porthaven reads the live connections between your processes and draws them: browser → storefront → API → Postgres. Links carrying traffic flow; a link whose server went away turns red.</p>
+        <p>It also reads the files where projects write down each other's addresses (<code>.env</code>, vite and next configs, proxy and compose files) and checks every <code>localhost:PORT</code> against what is running. When the API moved to :8001 this morning, one click fixes the line that still says :8000.</p>
+        <p class="muted"><code>porthaven map</code>, <code>porthaven drift --fix</code>, and the <code>service_map</code> and <code>port_drift</code> tools for agents.</p>
       </div>
     </section>
 
@@ -410,7 +443,7 @@ env = { VITE_API_URL = <span class="s">"{url:api}"</span> }</div>
               <div class="rq"><b>GET</b><span>/api/products?page=2</span><em class="ok">200</em><small>9 ms</small></div>
             </div>
           </div>
-          <div class="cap"><h3>Request inspector</h3><p>Every request through an app's stable name, with status, time and size. Spot the 500 without opening devtools.</p></div>
+          <div class="cap"><h3>Request inspector</h3><p>Every request through an app's stable name, with headers and bodies. Replay it, edit and resend, copy as curl, or export a HAR.</p></div>
         </article>
 
         <!-- sleep / wake -->
@@ -437,13 +470,50 @@ env = { VITE_API_URL = <span class="s">"{url:api}"</span> }</div>
           </div>
           <div class="cap"><h3>Workspaces</h3><p>Save what is running. Restore it tomorrow in one click, or switch and stop the rest.</p></div>
         </article>
+
+        <!-- share a port -->
+        <article class="tile t-share reveal">
+          <div class="viz">
+            <div class="share-row"><div class="qr" aria-hidden="true"></div><div class="share-txt"><b>:5173 Storefront</b><small>on your Wi-Fi · ends in 59 min</small><span>192.168.1.24:51840</span></div></div>
+          </div>
+          <div class="cap"><h3>Share a port</h3><p>A QR code for your phone, or a public link via cloudflared. Only people with the link get in, and it ends on its own.</p></div>
+        </article>
+
+        <!-- https -->
+        <article class="tile t-https reveal">
+          <div class="viz">
+            <div class="urlbar"><span class="lock">🔒</span><span class="u"><b>shop.localhost</b>:7443</span><span class="sec">Secure</span></div>
+            <div class="cert"><span>Issued by</span><b>Porthaven Local CA</b><span>Valid for</span><b>shop.localhost</b></div>
+          </div>
+          <div class="cap"><h3>Trusted HTTPS</h3><p>A certificate for every stable name, from a CA on your machine. For OAuth callbacks, secure cookies and service workers.</p></div>
+        </article>
+
+        <!-- log search -->
+        <article class="tile t-logs reveal">
+          <div class="viz">
+            <div class="lsearch">⌕ <b>timeout</b><span>3 apps · errors only</span></div>
+            <div class="lline"><i class="c1"></i><span>Shop API</span><code>Error: upstream <mark>timeout</mark> after 30s</code></div>
+            <div class="lline"><i class="c2"></i><span>Storefront</span><code>fetch /api/cart: <mark>timeout</mark></code></div>
+            <div class="lline"><i class="c3"></i><span>Worker</span><code>job 4812 <mark>timeout</mark>, retrying</code></div>
+          </div>
+          <div class="cap"><h3>Search every log</h3><p>One search over every app's output, with the errors of the last ten minutes grouped by app.</p></div>
+        </article>
+
+        <!-- memory growth -->
+        <article class="tile t-leak reveal">
+          <div class="viz">
+            <svg class="leakline" viewBox="0 0 200 60" aria-hidden="true"><path d="M0 52 L20 50 L40 46 L60 44 L80 38 L100 35 L120 28 L140 24 L160 17 L180 12 L200 6" /></svg>
+            <div class="leak-note"><div><b>Storefront</b><span>+640 MB in 2 h, still growing</span></div><em>Restart</em></div>
+          </div>
+          <div class="cap"><h3>Memory that keeps growing</h3><p>A leak, or a watcher piling up modules, is flagged before your laptop fans notice.</p></div>
+        </article>
       </div>
 
       <div class="ribbon reveal" aria-label="More features">
         <div class="ribbon-track">
-          <span>🐳 Docker-aware</span><span>🔍 Finds your projects</span><span>🧩 Groups</span><span>📦 Export &amp; import</span><span>📱 Wi-Fi URLs for phones</span>
+          <span>🐳 Compose services in stacks</span><span>🕰 30 days of port history</span><span>🧩 VS Code extension</span><span>🚀 Raycast &amp; Alfred</span><span>🐳 Docker-aware</span><span>🔍 Finds your projects</span><span>🧩 Groups</span><span>📦 Export &amp; import</span><span>📱 Wi-Fi URLs for phones</span>
           <span>🪟 macOS · Linux · Windows</span><span>🌓 Light &amp; dark</span><span>🖥 Starts at login</span><span>🪶 Zero dependencies</span><span>🔒 Token-protected API</span><span>📜 Live, coloured logs</span><span>♻️ Auto-restart on crash</span><span>🏷 Notes &amp; names per port</span><span>🗂 porthaven.toml</span><span>📲 Installs as an app</span><span>🧭 Menu-bar plugin</span><span>🔀 Git branch on every port</span>
-          <span aria-hidden="true">🐳 Docker-aware</span><span aria-hidden="true">🔍 Finds your projects</span><span aria-hidden="true">🧩 Groups</span><span aria-hidden="true">📦 Export &amp; import</span><span aria-hidden="true">📱 Wi-Fi URLs for phones</span>
+          <span aria-hidden="true">🐳 Compose services in stacks</span><span aria-hidden="true">🕰 30 days of port history</span><span aria-hidden="true">🧩 VS Code extension</span><span aria-hidden="true">🚀 Raycast &amp; Alfred</span><span aria-hidden="true">🐳 Docker-aware</span><span aria-hidden="true">🔍 Finds your projects</span><span aria-hidden="true">🧩 Groups</span><span aria-hidden="true">📦 Export &amp; import</span><span aria-hidden="true">📱 Wi-Fi URLs for phones</span>
           <span aria-hidden="true">🪟 macOS · Linux · Windows</span><span aria-hidden="true">🌓 Light &amp; dark</span><span aria-hidden="true">🖥 Starts at login</span><span aria-hidden="true">🪶 Zero dependencies</span><span aria-hidden="true">🔒 Token-protected API</span><span aria-hidden="true">📜 Live, coloured logs</span><span aria-hidden="true">♻️ Auto-restart on crash</span><span aria-hidden="true">🏷 Notes &amp; names per port</span><span aria-hidden="true">🗂 porthaven.toml</span><span aria-hidden="true">📲 Installs as an app</span><span aria-hidden="true">🧭 Menu-bar plugin</span><span aria-hidden="true">🔀 Git branch on every port</span>
         </div>
       </div>
@@ -462,6 +532,10 @@ env = { VITE_API_URL = <span class="s">"{url:api}"</span> }</div>
           <li><code>porthaven free 3000 -n 5</code> next free ports</li>
           <li><code>porthaven up</code> / <code>down</code> the stack in <code>porthaven.toml</code></li>
           <li><code>porthaven mcp</code> MCP server for coding agents</li>
+          <li><code>porthaven map</code> / <code>drift --fix</code> who talks to whom, wrong ports</li>
+          <li><code>porthaven history 3000 --at "yesterday 3pm"</code> who held a port</li>
+          <li><code>porthaven share 5173</code> a link for your phone</li>
+          <li><code>porthaven agents --stop</code> servers agents left behind</li>
           <li><code>porthaven service install</code> start at login</li>
         </ul>
       </div>
@@ -485,6 +559,10 @@ env = { VITE_API_URL = <span class="s">"{url:api}"</span> }</div>
         <div class="safe reveal"><b>No sudo, no cloud</b><p>Your user's processes only. State stays in <code>~/.porthaven</code>.</p></div>
         <div class="safe reveal"><b>Same rules for agents</b><p>The MCP server goes through the same guard rails and the same token. Agents can't do anything you couldn't.</p></div>
         <div class="safe reveal"><b>Exposure guard</b><p>Debug consoles reachable from the network are flagged as critical, with a notification and the fix.</p></div>
+        <div class="safe reveal"><b>Shares need a secret</b><p>A shared link opens a separate relay that only lets in visitors with its secret, ends on its own, and never shares debuggers or databases.</p></div>
+        <div class="safe reveal"><b>Your CA, your names</b><p>The HTTPS authority's key stays in <code>~/.porthaven</code>, it is trusted only when you say so, and it signs only <code>*.localhost</code>.</p></div>
+        <div class="safe reveal"><b>One line at a time</b><p>A drift fix changes just the line it names, inside a project Porthaven shows, and keeps the file's line endings.</p></div>
+        <div class="safe reveal"><b>Agents clean up only their own</b><p>An agent sees and stops the servers its own session started, through the same guard rails.</p></div>
         <div class="safe reveal"><b>Zero dependencies</b><p>The backend is the Python standard library, so there's nothing to install or audit.</p></div>
       </div>
     </section>

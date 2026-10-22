@@ -27,6 +27,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   stopped. It now remembers stopped servers, including ones that stopped by themselves.
 - Restarting or saving a server started with `npx` ran `npm exec vite --port 5174`, which hands `--port` to npm;
   it now runs `npm exec -- vite --port 5174`.
+- **Linux:** for a moment after Porthaven launched an app, its own port (:7475) was reported as that app's, giving
+  toasts like "Storefront is ready on :7475". A socket held by several processes (a just-forked child, or workers)
+  now belongs to the topmost one, as on macOS.
 
 ## [2.0.0] - 2026-10-20
 

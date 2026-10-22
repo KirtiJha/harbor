@@ -4,6 +4,7 @@ import faulthandler
 import json
 import os
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -108,6 +109,29 @@ class Linux(unittest.TestCase):
         listen = [(r["host"], r["port"], r["uid"]) for r in rows if r["state"] == "0A"]
         self.assertEqual(listen, [("127.0.0.1", 8080, 1001), ("0.0.0.0", 22, 0), ("::1", 8080, 1001)])
         self.assertEqual([(r["port"], r["inode"]) for r in rows if r["state"] == "01"], [(8080, 41299)])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "reads /proc")
+    def test_a_shared_socket_belongs_to_the_parent_not_a_new_child(self):
+        # A child that still holds its parent's listening socket (a fork before exec, a worker) must not take the
+        # port over: Porthaven once reported its own :7475 as the app it had just launched.
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        port = srv.getsockname()[1]
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], pass_fds=[srv.fileno()])
+        try:
+            found = system.linux_listeners()
+            self.assertIn((os.getpid(), port), found)
+            self.assertIn((child.pid, port), found)
+            rows = [{"port": port, "pid": pid, "cpu": 0.0, "memMb": 1.0, "connections": 0, "display": str(pid)}
+                    for (pid, p) in found if p == port]
+            merged = Porthaven._merge_workers(rows, system.processes())
+            self.assertEqual([r["pid"] for r in merged], [os.getpid()])
+            self.assertEqual([w["pid"] for w in merged[0]["workers"]], [child.pid])
+        finally:
+            child.kill()
+            child.wait()
+            srv.close()
 
 
 class Windows(unittest.TestCase):

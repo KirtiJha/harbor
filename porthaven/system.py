@@ -263,7 +263,8 @@ def _proc_net():
 
 
 def socket_owners(inodes):
-    """socket inode -> pid, by reading /proc/<pid>/fd links (only processes we may look at)."""
+    """socket inode -> [pid], by reading /proc/<pid>/fd links (only processes we may look at). A socket can have
+    several holders: workers sharing it, or a child Porthaven just forked that has not closed its copy yet."""
     want, owners = {f"socket:[{i}]" for i in inodes}, {}
     for entry in os.scandir("/proc"):
         if not entry.name.isdigit():
@@ -275,7 +276,7 @@ def socket_owners(inodes):
                 except OSError:
                     continue
                 if link in want:
-                    owners[int(link[8:-1])] = int(entry.name)
+                    owners.setdefault(int(link[8:-1]), []).append(int(entry.name))
         except OSError:
             continue
     return owners
@@ -286,14 +287,14 @@ def linux_listeners():
     owners = socket_owners({r["inode"] for r in rows})
     out = {}
     for r in rows:
-        pid = owners.get(r["inode"])
-        if pid is None:   # another user's socket (e.g. root's sshd): like lsof without sudo, Porthaven can't see it
-            continue
-        row = out.setdefault((pid, r["port"]), {"pid": pid, "port": r["port"], "command": "", "uid": r["uid"],
-                                               "user": "", "addresses": []})
-        shown = "*" if r["host"] in ("0.0.0.0", "::") else r["host"]
-        if shown not in row["addresses"]:
-            row["addresses"].append(shown)
+        # no holder: another user's socket (e.g. root's sshd); like lsof without sudo, Porthaven can't see it.
+        # Several holders: one row each, as lsof reports them; the engine keeps the topmost as the listener.
+        for pid in owners.get(r["inode"], []):
+            row = out.setdefault((pid, r["port"]), {"pid": pid, "port": r["port"], "command": "", "uid": r["uid"],
+                                                   "user": "", "addresses": []})
+            shown = "*" if r["host"] in ("0.0.0.0", "::") else r["host"]
+            if shown not in row["addresses"]:
+                row["addresses"].append(shown)
     return out
 
 
